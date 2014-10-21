@@ -469,14 +469,14 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 					String replicaName = item.get("_id").toString();
 					Thread tailerThread = EsExecutors.daemonThreadFactory(
 							settings.globalSettings(),
-							"mongodb_river_slurper-" + replicaName).newThread(
+							"mongodb_river_slurper-" + replicaName + ":" + indexName).newThread(
 							new Slurper(servers));
 					tailerThreads.add(tailerThread);
 				}
 			}
 		} else {
 			Thread tailerThread = EsExecutors.daemonThreadFactory(
-					settings.globalSettings(), "mongodb_river_slurper")
+					settings.globalSettings(), "mongodb_river_slurper:" + indexName)
 					.newThread(new Slurper(mongoServers));
 			tailerThreads.add(tailerThread);
 		}
@@ -486,7 +486,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 		}
 
 		indexerThread = EsExecutors.daemonThreadFactory(
-				settings.globalSettings(), "mongodb_river_indexer").newThread(
+				settings.globalSettings(), "mongodb_river_indexer:" + indexName).newThread(
 				new Indexer());
 		indexerThread.start();
 	}
