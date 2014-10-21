@@ -19,6 +19,7 @@
 package org.elasticsearch.river.mongodb;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.MINUTES;
 import static org.elasticsearch.client.Requests.indexRequest;
 import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
 
@@ -48,6 +49,7 @@ import org.elasticsearch.cluster.block.ClusterBlockException;
 import org.elasticsearch.common.StopWatch;
 import org.elasticsearch.common.collect.ImmutableMap;
 import org.elasticsearch.common.inject.Inject;
+import org.elasticsearch.common.joda.time.Minutes;
 import org.elasticsearch.common.logging.ESLogger;
 import org.elasticsearch.common.logging.ESLoggerFactory;
 import org.elasticsearch.common.unit.TimeValue;
@@ -474,10 +476,14 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 	private Mongo getMongoClient() {
 		if (mongo == null) {
 			// TODO: MongoClientOptions should be configurable
+			// XXX: The socketTimeout() argument needs to be bigger than the "while" that the QUERYOPTION_AWAITDATA makes the
+			//      server wait.
+			//      From mongo/src/mongo/db/instance.cpp ::receivedGetMore() and
+			//      mongo/src/mongo/db/query/new_find.cpp ::newGetMore() this seems to be about ~16min.
 			MongoClientOptions mco = MongoClientOptions.builder()
 					.autoConnectRetry(true)
 					.connectTimeout(15000)
-					.socketTimeout(60000)
+					.socketTimeout((int) MINUTES.toMillis(30))
 					.readPreference(mongoSecondaryReadPreference ? ReadPreference.secondaryPreferred() : ReadPreference.primaryPreferred())
 					.connectionsPerHost(10)
 					.threadsAllowedToBlockForConnectionMultiplier(10)
