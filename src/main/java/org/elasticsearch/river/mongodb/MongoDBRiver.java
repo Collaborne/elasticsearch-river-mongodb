@@ -591,14 +591,12 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 
 	@Override
 	public void close() {
-		if (active) {
-			logger.info("closing mongodb stream river");
-			active = false;
-			for (Thread thread : tailerThreads) {
-				thread.interrupt();
-			}
-			indexerThread.interrupt();
+		logger.info("closing mongodb stream river");
+		active = false;
+		for (Thread thread : tailerThreads) {
+			thread.interrupt();
 		}
+		indexerThread.interrupt();
 	}
 
 	private class Indexer implements Runnable {
