@@ -176,6 +176,8 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 	private final ExecutableScript script;
 
 	protected volatile List<Thread> tailerThreads = new ArrayList<Thread>();
+
+	protected volatile Thread monitorThread;
 	protected volatile Thread indexerThread;
 	protected volatile boolean active = true;
 
@@ -184,7 +186,6 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 	private final BlockingQueue<Map<String, Object>> stream;
 
 	private Mongo mongo;
-	private DB adminDb;
 
 	@SuppressWarnings("unchecked")
 	@Inject
@@ -459,102 +460,15 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 			}
 		}
 
-		if (isMongos()) {
-			DBCursor cursor = getConfigDb().getCollection("shards").find();
-			try {
-				while (cursor.hasNext()) {
-					DBObject item = cursor.next();
-					logger.info(item.toString());
-					List<ServerAddress> servers = getServerAddressForReplica(item);
-					if (servers != null) {
-						String replicaName = item.get("_id").toString();
-						Thread tailerThread = EsExecutors.daemonThreadFactory(
-								settings.globalSettings(),
-								"mongodb_river_slurper-" + replicaName + ":" + indexName).newThread(
-								new Slurper(getMongoClient()));
-						tailerThreads.add(tailerThread);
-					}
-				}
-			} finally {
-				cursor.close();
-			}
-		} else {
-			Thread tailerThread = EsExecutors.daemonThreadFactory(
-					settings.globalSettings(), "mongodb_river_slurper:" + indexName)
-					.newThread(new Slurper(getMongoClient()));
-			tailerThreads.add(tailerThread);
-		}
-
-		for (Thread thread : tailerThreads) {
-			thread.start();
-		}
+		monitorThread = EsExecutors.daemonThreadFactory(
+				settings.globalSettings(), "mongo_river_monitor:" + indexName).newThread(
+				new Monitor(getMongoClient()));
+		monitorThread.start();
 
 		indexerThread = EsExecutors.daemonThreadFactory(
 				settings.globalSettings(), "mongodb_river_indexer:" + indexName).newThread(
 				new Indexer());
 		indexerThread.start();
-	}
-
-	private boolean isMongos() {
-		DB adminDb = getAdminDb();
-		if (adminDb == null) {
-			return false;
-		}
-		CommandResult cr = adminDb
-				.command(new BasicDBObject("serverStatus", 1));
-		if (cr == null || cr.get("process") == null) {
-			logger.warn("serverStatus return null.");
-			return false;
-		}
-		String process = cr.get("process").toString().toLowerCase();
-		if (logger.isTraceEnabled()) {
-			logger.trace("serverStatus: {}", cr);
-			logger.trace("process: {}", process);
-		}
-		// return (cr.get("process").equals("mongos"));
-		// Fix for https://jira.mongodb.org/browse/SERVER-9160
-		return (process.contains("mongos"));
-	}
-
-	private DB getAdminDb() {
-		if (adminDb == null) {
-			adminDb = getMongoClient().getDB(DB_ADMIN);
-			if (!mongoAdminUser.isEmpty() && !mongoAdminPassword.isEmpty()
-					&& !adminDb.isAuthenticated()) {
-				logger.info("Authenticate {} with {}", MONGODB_ADMIN,
-						mongoAdminUser);
-
-				try {
-					CommandResult cmd = adminDb.authenticateCommand(
-							mongoAdminUser, mongoAdminPassword.toCharArray());
-					if (!cmd.ok()) {
-						logger.error("Authentication failed for {}: {}",
-								MONGODB_ADMIN, cmd.getErrorMessage());
-					}
-				} catch (MongoException mEx) {
-					logger.warn("getAdminDb() failed", mEx);
-				}
-			}
-		}
-		return adminDb;
-	}
-
-	private DB getConfigDb() {
-		DB configDb = getMongoClient().getDB(DB_CONFIG);
-		if (!mongoAdminUser.isEmpty() && !mongoAdminUser.isEmpty()
-				&& getAdminDb().isAuthenticated()) {
-			configDb = getAdminDb().getMongo().getDB(DB_CONFIG);
-			// } else if (!mongoDbUser.isEmpty() && !mongoDbPassword.isEmpty()
-			// && !configDb.isAuthenticated()) {
-			// logger.info("Authenticate {} with {}", mongoDb, mongoDbUser);
-			// CommandResult cmd = configDb.authenticateCommand(mongoDbUser,
-			// mongoDbPassword.toCharArray());
-			// if (!cmd.ok()) {
-			// logger.error("Authentication failed for {}: {}",
-			// DB_CONFIG, cmd.getErrorMessage());
-			// }
-		}
-		return configDb;
 	}
 
 	private Mongo getMongoClient() {
@@ -597,6 +511,9 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 	public void close() {
 		logger.info("closing mongodb stream river");
 		active = false;
+
+		monitorThread.interrupt();
+
 		for (Thread thread : tailerThreads) {
 			thread.interrupt();
 		}
@@ -1221,6 +1138,127 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 			// }
 		}
 
+	}
+
+	private class Monitor implements Runnable {
+		private final Mongo mongo;
+		private DB adminDb;
+
+		public Monitor(Mongo mongo) {
+			this.mongo = mongo;
+		}
+
+		@Override
+		public void run() {
+			while (active) {
+				try {
+					if (isMongos()) {
+						DBCursor cursor = getConfigDb().getCollection("shards").find();
+						try {
+							while (cursor.hasNext()) {
+								DBObject item = cursor.next();
+								logger.info(item.toString());
+								List<ServerAddress> servers = getServerAddressForReplica(item);
+								if (servers != null) {
+									String replicaName = item.get("_id").toString();
+									Thread tailerThread = EsExecutors.daemonThreadFactory(
+											settings.globalSettings(),
+											"mongodb_river_slurper-" + replicaName + ":" + indexName).newThread(
+											new Slurper(mongo));
+									tailerThreads.add(tailerThread);
+								}
+							}
+						} finally {
+							cursor.close();
+						}
+					} else {
+						Thread tailerThread = EsExecutors.daemonThreadFactory(
+								settings.globalSettings(), "mongodb_river_slurper:" + indexName)
+								.newThread(new Slurper(mongo));
+						tailerThreads.add(tailerThread);
+					}
+
+					for (Thread thread : tailerThreads) {
+						thread.start();
+					}
+
+					// Done: we have started the tailer threads and can die.
+					break;
+				} catch (MongoInterruptedException mIEx) {
+					logger.error("Mongo driver has been interrupted", mIEx);
+					active = false;
+				} catch (MongoException.Network mNEx) {
+					// Ignore these
+					logger.warn("Mongo gave a network exception", mNEx);
+				} catch (MongoException mEx) {
+					// Something else, stop.
+					logger.error("Mongo gave an exception: giving up", mEx);
+					break;
+				}
+			}
+		}
+
+		private boolean isMongos() {
+			DB adminDb = getAdminDb();
+			if (adminDb == null) {
+				return false;
+			}
+			CommandResult cr = adminDb
+					.command(new BasicDBObject("serverStatus", 1));
+			if (cr == null || cr.get("process") == null) {
+				logger.warn("serverStatus return null.");
+				return false;
+			}
+			String process = cr.get("process").toString().toLowerCase();
+			if (logger.isTraceEnabled()) {
+				logger.trace("serverStatus: {}", cr);
+				logger.trace("process: {}", process);
+			}
+			// return (cr.get("process").equals("mongos"));
+			// Fix for https://jira.mongodb.org/browse/SERVER-9160
+			return (process.contains("mongos"));
+		}
+
+		private DB getAdminDb() {
+			if (adminDb == null) {
+				adminDb = mongo.getDB(DB_ADMIN);
+				if (!mongoAdminUser.isEmpty() && !mongoAdminPassword.isEmpty()
+						&& !adminDb.isAuthenticated()) {
+					logger.info("Authenticate {} with {}", MONGODB_ADMIN,
+							mongoAdminUser);
+
+					try {
+						CommandResult cmd = adminDb.authenticateCommand(
+								mongoAdminUser, mongoAdminPassword.toCharArray());
+						if (!cmd.ok()) {
+							logger.error("Authentication failed for {}: {}",
+									MONGODB_ADMIN, cmd.getErrorMessage());
+						}
+					} catch (MongoException mEx) {
+						logger.warn("getAdminDb() failed", mEx);
+					}
+				}
+			}
+			return adminDb;
+		}
+
+		private DB getConfigDb() {
+			DB configDb = mongo.getDB(DB_CONFIG);
+			if (!mongoAdminUser.isEmpty() && !mongoAdminUser.isEmpty()
+					&& getAdminDb().isAuthenticated()) {
+				configDb = getAdminDb().getMongo().getDB(DB_CONFIG);
+				// } else if (!mongoDbUser.isEmpty() && !mongoDbPassword.isEmpty()
+				// && !configDb.isAuthenticated()) {
+				// logger.info("Authenticate {} with {}", mongoDb, mongoDbUser);
+				// CommandResult cmd = configDb.authenticateCommand(mongoDbUser,
+				// mongoDbPassword.toCharArray());
+				// if (!cmd.ok()) {
+				// logger.error("Authentication failed for {}: {}",
+				// DB_CONFIG, cmd.getErrorMessage());
+				// }
+			}
+			return configDb;
+		}
 	}
 
 	private XContentBuilder getGridFSMapping() throws IOException {
