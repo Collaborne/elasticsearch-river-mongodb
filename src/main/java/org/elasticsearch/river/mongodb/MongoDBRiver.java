@@ -1173,6 +1173,8 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 			if (indexFilter == null) {
 				return null;
 			}
+			// XXX: http://docs.mongodb.org/manual/tutorial/create-tailable-cursor/ uses a hint() rather than
+			//      a sort(); sort() seems to be the "older" version
 			return oplogCollection.find(indexFilter)
 					.sort(new BasicDBObject(MONGODB_NATURAL_OPERATOR, 1))
 					.addOption(Bytes.QUERYOPTION_TAILABLE)
