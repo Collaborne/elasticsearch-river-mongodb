@@ -524,7 +524,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 					CommandResult cmd = adminDb.authenticateCommand(
 							mongoAdminUser, mongoAdminPassword.toCharArray());
 					if (!cmd.ok()) {
-						logger.error("Autenticatication failed for {}: {}",
+						logger.error("Authentication failed for {}: {}",
 								MONGODB_ADMIN, cmd.getErrorMessage());
 					}
 				} catch (MongoException mEx) {
@@ -546,7 +546,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 			// CommandResult cmd = configDb.authenticateCommand(mongoDbUser,
 			// mongoDbPassword.toCharArray());
 			// if (!cmd.ok()) {
-			// logger.error("Autenticatication failed for {}: {}",
+			// logger.error("Authentication failed for {}: {}",
 			// DB_CONFIG, cmd.getErrorMessage());
 			// }
 		}
@@ -907,7 +907,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 				CommandResult cmd = adminDb.authenticateCommand(mongoAdminUser,
 						mongoAdminPassword.toCharArray());
 				if (!cmd.ok()) {
-					logger.error("Autenticatication failed for {}: {}",
+					logger.error("Authentication failed for {}: {}",
 							MONGODB_ADMIN, cmd.getErrorMessage());
 					// Can still try with mongoLocal credential if provided.
 					// return false;
@@ -922,7 +922,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 				CommandResult cmd = oplogDb.authenticateCommand(mongoLocalUser,
 						mongoLocalPassword.toCharArray());
 				if (!cmd.ok()) {
-					logger.error("Autenticatication failed for {}: {}",
+					logger.error("Authentication failed for {}: {}",
 							MONGODB_LOCAL, cmd.getErrorMessage());
 					return false;
 				}
@@ -951,7 +951,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 			// CommandResult cmd = slurpedDb.authenticateCommand(mongoDbUser,
 			// mongoDbPassword.toCharArray());
 			// if (!cmd.ok()) {
-			// logger.error("Autenticatication failed for {}: {}",
+			// logger.error("Authentication failed for {}: {}",
 			// mongoDb, cmd.getErrorMessage());
 			// return false;
 			// }
