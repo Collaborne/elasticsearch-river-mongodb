@@ -561,6 +561,8 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 					.connectTimeout(15000)
 					.socketTimeout(60000)
 					.readPreference(mongoSecondaryReadPreference ? ReadPreference.secondaryPreferred() : ReadPreference.primaryPreferred())
+					.connectionsPerHost(10)
+					.threadsAllowedToBlockForConnectionMultiplier(10)
 					.build();
 			mongo = new MongoClient(mongoServers, mco);
 		}
