@@ -597,6 +597,8 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 			thread.interrupt();
 		}
 		indexerThread.interrupt();
+
+		mongo.close();
 	}
 
 	private class Indexer implements Runnable {
