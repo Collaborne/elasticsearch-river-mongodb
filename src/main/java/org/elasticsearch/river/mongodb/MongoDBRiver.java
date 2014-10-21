@@ -470,14 +470,14 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 					Thread tailerThread = EsExecutors.daemonThreadFactory(
 							settings.globalSettings(),
 							"mongodb_river_slurper-" + replicaName + ":" + indexName).newThread(
-							new Slurper(servers));
+							new Slurper(getMongoClient()));
 					tailerThreads.add(tailerThread);
 				}
 			}
 		} else {
 			Thread tailerThread = EsExecutors.daemonThreadFactory(
 					settings.globalSettings(), "mongodb_river_slurper:" + indexName)
-					.newThread(new Slurper(mongoServers));
+					.newThread(new Slurper(getMongoClient()));
 			tailerThreads.add(tailerThread);
 		}
 
@@ -890,10 +890,9 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 		private DBCollection slurpedCollection;
 		private DB oplogDb;
 		private DBCollection oplogCollection;
-		private final List<ServerAddress> mongoServers;
 
-		public Slurper(List<ServerAddress> mongoServers) {
-			this.mongoServers = mongoServers;
+		public Slurper(Mongo mongo) {
+			this.mongo = mongo;
 		}
 
 		private boolean assignCollections() {
@@ -963,8 +962,6 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 
 		@Override
 		public void run() {
-			mongo = new MongoClient(mongoServers);
-
 			if (mongoSecondaryReadPreference) {
 				mongo.setReadPreference(ReadPreference.secondaryPreferred());
 			}
