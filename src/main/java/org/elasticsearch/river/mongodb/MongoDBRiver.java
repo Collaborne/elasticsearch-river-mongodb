@@ -461,18 +461,22 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 
 		if (isMongos()) {
 			DBCursor cursor = getConfigDb().getCollection("shards").find();
-			while (cursor.hasNext()) {
-				DBObject item = cursor.next();
-				logger.info(item.toString());
-				List<ServerAddress> servers = getServerAddressForReplica(item);
-				if (servers != null) {
-					String replicaName = item.get("_id").toString();
-					Thread tailerThread = EsExecutors.daemonThreadFactory(
-							settings.globalSettings(),
-							"mongodb_river_slurper-" + replicaName + ":" + indexName).newThread(
-							new Slurper(getMongoClient()));
-					tailerThreads.add(tailerThread);
+			try {
+				while (cursor.hasNext()) {
+					DBObject item = cursor.next();
+					logger.info(item.toString());
+					List<ServerAddress> servers = getServerAddressForReplica(item);
+					if (servers != null) {
+						String replicaName = item.get("_id").toString();
+						Thread tailerThread = EsExecutors.daemonThreadFactory(
+								settings.globalSettings(),
+								"mongodb_river_slurper-" + replicaName + ":" + indexName).newThread(
+								new Slurper(getMongoClient()));
+						tailerThreads.add(tailerThread);
+					}
 				}
+			} finally {
+				cursor.close();
 			}
 		} else {
 			Thread tailerThread = EsExecutors.daemonThreadFactory(
@@ -979,9 +983,13 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 						oplogCursor = processFullCollection();
 					}
 
-					while (oplogCursor.hasNext()) {
-						DBObject item = oplogCursor.next();
-						processOplogEntry(item);
+					try {
+						while (oplogCursor.hasNext()) {
+							DBObject item = oplogCursor.next();
+							processOplogEntry(item);
+						}
+					} finally {
+						oplogCursor.close();
 					}
 					Thread.sleep(500);
 				} catch (MongoInterruptedException mIEx) {
@@ -1008,13 +1016,14 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 		private DBCursor processFullCollection() throws InterruptedException {
 			// CommandResult lockResult = mongo.fsyncAndLock();
 			// if (lockResult.ok()) {
+			DBCursor cursor = oplogCollection.find().sort(new BasicDBObject(OPLOG_TIMESTAMP, -1)).limit(1);
 			try {
-				BSONTimestamp currentTimestamp = (BSONTimestamp) oplogCollection
-						.find().sort(new BasicDBObject(OPLOG_TIMESTAMP, -1))
-						.limit(1).next().get(OPLOG_TIMESTAMP);
+				assert cursor.hasNext() : "Sanity";
+				BSONTimestamp currentTimestamp = (BSONTimestamp) cursor.next().get(OPLOG_TIMESTAMP);
 				addQueryToStream(OPLOG_INSERT_OPERATION, currentTimestamp, null);
 				return oplogCursor(currentTimestamp);
 			} finally {
+				cursor.close();
 				// mongo.unlock();
 			}
 			// } else {
@@ -1179,8 +1188,14 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 						"addQueryToStream - operation [{}], currentTimestamp [{}], update [{}]",
 						operation, currentTimestamp, update);
 			}
-			for (DBObject item : slurpedCollection.find(update)) {
-				addToStream(operation, currentTimestamp, item.toMap());
+
+			DBCursor cursor = slurpedCollection.find(update);
+			try {
+				for (DBObject item : cursor) {
+					addToStream(operation, currentTimestamp, item.toMap());
+				}
+			} finally {
+				cursor.close();
 			}
 		}
 
