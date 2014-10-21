@@ -557,8 +557,11 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 		if (mongo == null) {
 			// TODO: MongoClientOptions should be configurable
 			MongoClientOptions mco = MongoClientOptions.builder()
-					.autoConnectRetry(true).connectTimeout(15000)
-					.socketTimeout(60000).build();
+					.autoConnectRetry(true)
+					.connectTimeout(15000)
+					.socketTimeout(60000)
+					.readPreference(mongoSecondaryReadPreference ? ReadPreference.secondaryPreferred() : ReadPreference.primaryPreferred())
+					.build();
 			mongo = new MongoClient(mongoServers, mco);
 		}
 		return mongo;
@@ -962,10 +965,6 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 
 		@Override
 		public void run() {
-			if (mongoSecondaryReadPreference) {
-				mongo.setReadPreference(ReadPreference.secondaryPreferred());
-			}
-
 			while (active) {
 				try {
 					if (!assignCollections()) {
