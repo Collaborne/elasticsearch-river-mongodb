@@ -1145,6 +1145,8 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 	}
 
 	private class Monitor implements Runnable {
+		private final ESLogger logger = ESLoggerFactory.getLogger(this
+				.getClass().getName());
 		private final Mongo mongo;
 		private DB adminDb;
 
