@@ -67,10 +67,11 @@ public class MongoClientService extends AbstractLifecycleComponent<MongoClientSe
 		//      From mongo/src/mongo/db/instance.cpp ::receivedGetMore() and
 		//      mongo/src/mongo/db/query/new_find.cpp ::newGetMore() this seems to be about ~16min.
 		// XXX: The original river supports changing the read preference
+		// XXX: force secondary usage to reduce load on the primary (and distribute it)
 		MongoClientOptions mco = MongoClientOptions.builder()
 			.connectTimeout(15000)
 			.socketTimeout((int) MINUTES.toMillis(30))
-			.readPreference(ReadPreference.primaryPreferred())
+			.readPreference(ReadPreference.secondaryPreferred())
 			.connectionsPerHost(100)
 			.threadsAllowedToBlockForConnectionMultiplier(100)
 			.build();
