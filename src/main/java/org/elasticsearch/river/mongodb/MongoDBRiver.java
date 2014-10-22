@@ -186,6 +186,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 	// LinkedTransferQueue<Map<String, Object>>();
 	private final BlockingQueue<Map<String, Object>> stream;
 
+	private final MongoClientService mongoClientService;
 	private Mongo mongo;
 
 	@SuppressWarnings("unchecked")
@@ -193,7 +194,8 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 	public MongoDBRiver(final RiverName riverName,
 			final RiverSettings settings,
 			@RiverIndexName final String riverIndexName, final Client client,
-			final ScriptService scriptService) {
+			final ScriptService scriptService,
+			MongoClientService mongoClientService) {
 		super(riverName, settings);
 		if (logger.isDebugEnabled()) {
 			logger.debug("Prefix: [{}] - name: [{}]", logger.getPrefix(),
@@ -202,6 +204,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 		}
 		this.riverIndexName = riverIndexName;
 		this.client = client;
+		this.mongoClientService = mongoClientService;
 		String mongoHost;
 		int mongoPort;
 
@@ -474,19 +477,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 
 	private Mongo getMongoClient() {
 		if (mongo == null) {
-			// TODO: MongoClientOptions should be configurable
-			// XXX: The socketTimeout() argument needs to be bigger than the "while" that the QUERYOPTION_AWAITDATA makes the
-			//      server wait.
-			//      From mongo/src/mongo/db/instance.cpp ::receivedGetMore() and
-			//      mongo/src/mongo/db/query/new_find.cpp ::newGetMore() this seems to be about ~16min.
-			MongoClientOptions mco = MongoClientOptions.builder()
-					.connectTimeout(15000)
-					.socketTimeout((int) MINUTES.toMillis(30))
-					.readPreference(mongoSecondaryReadPreference ? ReadPreference.secondaryPreferred() : ReadPreference.primaryPreferred())
-					.connectionsPerHost(10)
-					.threadsAllowedToBlockForConnectionMultiplier(10)
-					.build();
-			mongo = new MongoClient(mongoServers, mco);
+			mongo = mongoClientService.getMongoClient(mongoServers);
 		}
 		return mongo;
 	}
@@ -522,8 +513,6 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 			thread.interrupt();
 		}
 		indexerThread.interrupt();
-
-		mongo.close();
 	}
 
 	private class Indexer implements Runnable {
