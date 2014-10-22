@@ -480,7 +480,6 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 			//      From mongo/src/mongo/db/instance.cpp ::receivedGetMore() and
 			//      mongo/src/mongo/db/query/new_find.cpp ::newGetMore() this seems to be about ~16min.
 			MongoClientOptions mco = MongoClientOptions.builder()
-					.autoConnectRetry(true)
 					.connectTimeout(15000)
 					.socketTimeout((int) MINUTES.toMillis(30))
 					.readPreference(mongoSecondaryReadPreference ? ReadPreference.secondaryPreferred() : ReadPreference.primaryPreferred())
