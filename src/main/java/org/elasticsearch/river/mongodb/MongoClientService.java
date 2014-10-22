@@ -10,6 +10,7 @@ import org.elasticsearch.ElasticSearchException;
 import org.elasticsearch.common.annotations.VisibleForTesting;
 import org.elasticsearch.common.component.AbstractLifecycleComponent;
 import org.elasticsearch.common.inject.Inject;
+import org.elasticsearch.common.inject.Singleton;
 import org.elasticsearch.common.settings.Settings;
 
 import com.mongodb.MongoClient;
@@ -17,6 +18,7 @@ import com.mongodb.MongoClientOptions;
 import com.mongodb.ReadPreference;
 import com.mongodb.ServerAddress;
 
+@Singleton
 public class MongoClientService extends AbstractLifecycleComponent<MongoClientService> {
 	private final ConcurrentMap<List<ServerAddress>, MongoClient> mongoClients = new ConcurrentHashMap<List<ServerAddress>, MongoClient>();
 
@@ -27,10 +29,12 @@ public class MongoClientService extends AbstractLifecycleComponent<MongoClientSe
 
 	@Override
 	protected void doStart() throws ElasticSearchException {
+		logger.info("Starting MongoClientService: [{}]", this);
 	}
 
 	@Override
 	protected void doStop() throws ElasticSearchException {
+		logger.info("Stopping MongoClientService: [{}]", this);
 	}
 
 	@Override
