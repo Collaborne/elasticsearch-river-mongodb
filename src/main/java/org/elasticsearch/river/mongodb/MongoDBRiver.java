@@ -1185,10 +1185,12 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 					}
 
 					for (Thread thread : tailerThreads) {
+						logger.info("Starting slurper: [{}]", thread.getName());
 						thread.start();
 					}
 
 					// Done: we have started the tailer threads and can die.
+					logger.info("Finishing Monitor thread");
 					break;
 				} catch (MongoInterruptedException mIEx) {
 					logger.error("Mongo driver has been interrupted", mIEx);
