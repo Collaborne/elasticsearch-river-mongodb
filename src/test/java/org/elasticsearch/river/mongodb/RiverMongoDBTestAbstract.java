@@ -198,7 +198,8 @@ public abstract class RiverMongoDBTestAbstract {
     }
 
     private static boolean tokuIsSupported() {
-        return Platform.detect() == Platform.Linux && BitSize.detect() == BitSize.B64;
+        // #354: Disabled for now
+        return false;
     }
 
     /** Only include TOKUMX if on a supported platform */
