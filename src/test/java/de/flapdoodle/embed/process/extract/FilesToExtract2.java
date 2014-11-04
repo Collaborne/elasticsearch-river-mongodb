@@ -18,7 +18,10 @@ public class FilesToExtract2 extends FilesToExtract {
     }
 
     private FilesToExtract2(ITempNaming exeutableNaming, FileSet fileSet, final File subdir) {
-        this(exeutableNaming, fileSet, new IDirectory() { @Override public File asFile() { return subdir; }});
+        this(exeutableNaming, fileSet, new IDirectory() {
+            @Override public File asFile() { return subdir; }
+            @Override public boolean isGenerated() { return false; }
+        });
     }
 
     private FilesToExtract2(ITempNaming exeutableNaming, FileSet fileSet, IDirectory subdirFactory) {
