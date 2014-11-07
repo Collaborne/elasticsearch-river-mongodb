@@ -110,7 +110,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
     static final ESLogger logger = ESLoggerFactory.getLogger(MongoDBRiver.class.getName());
 
     protected final MongoDBRiverDefinition definition;
-    protected final Client client;
+    protected final Client esClient;
     protected final ScriptService scriptService;
     protected final SharedContext context;
 
@@ -123,16 +123,15 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
     private final MongoClientService mongoClientService;
 
     @Inject
-    public MongoDBRiver(RiverName riverName, RiverSettings settings, @RiverIndexName String riverIndexName, Client client,
-            ScriptService scriptService,
-            MongoClientService mongoClientService) {
+    public MongoDBRiver(RiverName riverName, RiverSettings settings, @RiverIndexName String riverIndexName,
+            Client esClient, ScriptService scriptService, MongoClientService mongoClientService) {
         super(riverName, settings);
         if (logger.isTraceEnabled()) {
             logger.trace("Initializing river : [{}]", riverName.getName());
         }
+        this.esClient = esClient;
         this.scriptService = scriptService;
         this.mongoClientService = mongoClientService;
-        this.client = client;
         this.definition = MongoDBRiverDefinition.parseSettings(riverName.name(), riverIndexName, settings, scriptService);
 
         BlockingQueue<QueueEntry> stream = definition.getThrottleSize() == -1 ? new LinkedTransferQueue<QueueEntry>()
@@ -145,7 +144,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
     public void start() {
         try {
             logger.info("Starting river {}", riverName.getName());
-            Status status = MongoDBRiverHelper.getRiverStatus(client, riverName.getName());
+            Status status = MongoDBRiverHelper.getRiverStatus(esClient, riverName.getName());
             if (status == Status.IMPORT_FAILED || status == Status.INITIAL_IMPORT_FAILED || status == Status.SCRIPT_IMPORT_FAILED
                     || status == Status.START_FAILED) {
                 logger.error("Cannot start river {}. Current status is {}", riverName.getName(), status);
@@ -157,7 +156,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
                 return;
             }
 
-            MongoDBRiverHelper.setRiverStatus(client, riverName.getName(), Status.RUNNING);
+            MongoDBRiverHelper.setRiverStatus(esClient, riverName.getName(), Status.RUNNING);
             this.context.setStatus(Status.RUNNING);
             for (ServerAddress server : definition.getMongoServers()) {
                 logger.debug("Using mongodb server(s): host [{}], port [{}]", server.getHost(), server.getPort());
@@ -172,8 +171,8 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 
             // Create the index if it does not exist
             try {
-                if (!client.admin().indices().prepareExists(definition.getIndexName()).get().isExists()) {
-                    client.admin().indices().prepareCreate(definition.getIndexName()).get();
+                if (!esClient.admin().indices().prepareExists(definition.getIndexName()).get().isExists()) {
+                    esClient.admin().indices().prepareCreate(definition.getIndexName()).get();
                 }
             } catch (Exception e) {
                 if (ExceptionsHelper.unwrapCause(e) instanceof IndexAlreadyExistsException) {
@@ -197,7 +196,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
                     if (logger.isDebugEnabled()) {
                         logger.debug("Set explicit attachment mapping.");
                     }
-                    client.admin().indices().preparePutMapping(definition.getIndexName()).setType(definition.getTypeName())
+                    esClient.admin().indices().preparePutMapping(definition.getIndexName()).setType(definition.getTypeName())
                             .setSource(getGridFSMapping()).get();
                 } catch (Exception e) {
                     logger.warn("Failed to set explicit mapping (attachment): {}", e);
@@ -206,11 +205,11 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
 
             // Tail the oplog
             starterThread = EsExecutors.daemonThreadFactory(settings.globalSettings(), "mongodb_river_starter:" + definition.getIndexName()).newThread(
-                    new Starter(mongoClientService, settings, definition, context, client, tailerThreads));
+                    new Starter(mongoClientService, settings, definition, context, esClient, tailerThreads));
             starterThread.start();
 
             indexerThread = EsExecutors.daemonThreadFactory(settings.globalSettings(), "mongodb_river_indexer:" + definition.getIndexName()).newThread(
-                    new Indexer(this, definition, context, client, scriptService));
+                    new Indexer(this, definition, context, esClient, scriptService));
             indexerThread.start();
 
             statusThread = EsExecutors.daemonThreadFactory(settings.globalSettings(), "mongodb_river_status:" + definition.getIndexName()).newThread(
@@ -218,7 +217,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
             statusThread.start();
         } catch (Throwable t) {
             logger.warn("Fail to start river {}", t, riverName.getName());
-            MongoDBRiverHelper.setRiverStatus(client, definition.getRiverName(), Status.START_FAILED);
+            MongoDBRiverHelper.setRiverStatus(esClient, definition.getRiverName(), Status.START_FAILED);
             this.context.setStatus(Status.START_FAILED);
         } finally {
             startInvoked = true;

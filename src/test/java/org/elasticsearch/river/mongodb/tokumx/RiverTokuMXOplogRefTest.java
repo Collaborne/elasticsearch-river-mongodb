@@ -24,6 +24,7 @@ import com.mongodb.DBCursor;
 import com.mongodb.DBObject;
 import com.mongodb.WriteConcern;
 
+@Test
 public class RiverTokuMXOplogRefTest extends RiverTokuMXTestAbstract {
 
     static final String LONG_STRING =
@@ -31,7 +32,7 @@ public class RiverTokuMXOplogRefTest extends RiverTokuMXTestAbstract {
 
     private DB mongoDB;
     private DBCollection mongoCollection;
-
+    
     @BeforeClass
     public void createDatabase() {
         logger.debug("createDatabase {}", getDatabase());
@@ -64,13 +65,10 @@ public class RiverTokuMXOplogRefTest extends RiverTokuMXTestAbstract {
         refreshIndex();
         CountResponse countResponse = getNode().client().count(countRequest(getIndex())).actionGet();
         assertThat(countResponse.getCount(), Matchers.equalTo(1L));
-        DBCursor cursor = mongoDB.getSisterDB(LOCAL_DATABASE_NAME).getCollection(OPLOG_COLLECTION)
-                .find().sort(new BasicDBObject("$natural", -1)).limit(1);
-        try {
+        try (DBCursor cursor = mongoDB.getSisterDB(LOCAL_DATABASE_NAME).getCollection(OPLOG_COLLECTION)
+                .find().sort(new BasicDBObject("$natural", -1)).limit(1)) {
             DBObject lastOplog = cursor.toArray().get(0);
             assertThat(lastOplog.containsField("ref"), Matchers.is(Boolean.TRUE));
-        } finally {
-            cursor.close();
         }
     }
 

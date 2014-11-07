@@ -21,7 +21,6 @@ package org.elasticsearch.plugin.river.mongodb;
 
 import java.util.Collection;
 
-import org.elasticsearch.common.collect.ImmutableList;
 import org.elasticsearch.common.component.LifecycleComponent;
 import org.elasticsearch.common.inject.Module;
 import org.elasticsearch.plugins.AbstractPlugin;
@@ -29,9 +28,11 @@ import org.elasticsearch.rest.RestModule;
 import org.elasticsearch.rest.action.mongodb.RestMongoDBRiverAction;
 import org.elasticsearch.river.RiversModule;
 import org.elasticsearch.river.mongodb.MongoClientService;
-import org.elasticsearch.river.mongodb.MongoClientServiceModule;
+import org.elasticsearch.river.mongodb.NodeLevelModule;
 import org.elasticsearch.river.mongodb.MongoDBRiver;
 import org.elasticsearch.river.mongodb.MongoDBRiverModule;
+
+import com.google.common.collect.ImmutableList;
 
 /**
  * @author flaper87 (Flavio Percoco Premoli)
@@ -50,30 +51,29 @@ public class MongoDBRiverPlugin extends AbstractPlugin {
     public String description() {
         return MongoDBRiver.DESCRIPTION;
     }
-
+    
     @Override
     public Collection<Class<? extends LifecycleComponent>> services() {
         return ImmutableList.<Class<? extends LifecycleComponent>>builder().addAll(super.services()).add(MongoClientService.class).build();
     }
 
+    /**
+     * Node-level modules
+     */
     @Override
     public Collection<Class<? extends Module>> modules() {
-        return ImmutableList.<Class<? extends Module>>builder().addAll(super.modules()).add(MongoClientServiceModule.class).build();
+        return ImmutableList.<Class<? extends Module>>builder().addAll(super.modules()).add(NodeLevelModule.class).build();
     }
 
     /**
-     * Register the MongoDB river to Elasticsearch node
-     * 
-     * @param module
+     * Register the MongoDB river
      */
     public void onModule(RiversModule module) {
         module.registerRiver(MongoDBRiver.TYPE, MongoDBRiverModule.class);
     }
 
     /**
-     * Register the REST move to Elasticsearch node
-     * 
-     * @param module
+     * Register the REST handler
      */
     public void onModule(RestModule module) {
         module.addRestAction(RestMongoDBRiverAction.class);

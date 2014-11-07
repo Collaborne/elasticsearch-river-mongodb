@@ -21,7 +21,7 @@ import com.mongodb.CommandResult;
 import com.mongodb.DB;
 import com.mongodb.DBCursor;
 import com.mongodb.DBObject;
-import com.mongodb.Mongo;
+import com.mongodb.MongoClient;
 import com.mongodb.MongoException;
 import com.mongodb.MongoInterruptedException;
 import com.mongodb.MongoSocketException;
@@ -190,12 +190,12 @@ class Starter implements Runnable {
         return configDb;
     }
 
-    private Mongo getMongoClient() {
-        return mongoClientService.getMongoClient(definition.getMongoServers(), definition.getMongoClientOptions());
+    private MongoClient getMongoClient() {
+        return mongoClientService.getMongoClient(definition, null);
     }
 
-    private Mongo getReplicaMongoClient(List<ServerAddress> servers) {
-        return mongoClientService.getMongoClient(servers, definition.getMongoClientOptions());
+    private MongoClient getReplicaMongoClient(List<ServerAddress> servers) {
+        return mongoClientService.getMongoClient(definition, servers);
     }
 
     private List<ServerAddress> getServerAddressForReplica(DBObject item) {

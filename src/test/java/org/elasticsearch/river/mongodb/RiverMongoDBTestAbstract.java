@@ -121,7 +121,8 @@ public abstract class RiverMongoDBTestAbstract {
     }
 
     public static enum ExecutableType {
-        VANILLA("mongodb", true, true, MongodStarter.getDefaultInstance()), TOKUMX("tokumx", tokuIsSupported(), false, TokuMXStarter.getDefaultInstance());
+        VANILLA("mongodb", true, true, MongodStarter.getDefaultInstance()),
+        TOKUMX("tokumx", tokuIsSupported(), false, TokuMXStarter.getDefaultInstance());
 
         public final String configKey;
         public final boolean isSupported;
@@ -197,7 +198,7 @@ public abstract class RiverMongoDBTestAbstract {
             @Override public boolean apply(ExecutableType _) { return _.isSupported; }});
     }
 
-    private static boolean tokuIsSupported() {
+    protected static boolean tokuIsSupported() {
         return Platform.detect() == Platform.Linux && BitSize.detect() == BitSize.B64;
     }
 
