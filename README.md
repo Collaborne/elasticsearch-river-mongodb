@@ -9,7 +9,7 @@ In order to install the plugin, simply run: ```bin/plugin --install com.github.r
 
 | MongoDB River Plugin     | ElasticSearch    | MongoDB       | TokuMX        |
 |--------------------------|------------------|---------------|---------------|
-| master                   | 1.3.4            | 2.6.5         | 1.5.1         |
+| master                   | 1.3.5            | 2.6.5         | 1.5.1         |
 | 2.0.1                    | 1.2.2            | 2.4.9 -> 2.6.3| 1.5.0         |
 | 2.0.0                    | 1.0.0 -> 1.1.1   | 2.4.9         |               |
 | 1.7.4                    | 0.90.10          | 2.4.8         |               |
@@ -22,16 +22,6 @@ In order to install the plugin, simply run: ```bin/plugin --install com.github.r
 | 1.6.8                    | 0.90.0           | 2.4.3         |               |
 | 1.6.7                    | 0.90.0           | 2.4.3         |               |
 | 1.6.6                    | 0.90.0           | 2.4.3         |               |
-| 1.6.5                    | 0.20.6           | 2.4.1         |               |
-| 1.6.4                    | 0.20.5           | 2.2.3         |               |
-| 1.6.2                    | 0.20.1           | 2.2.2         |               |
-| 1.6.0                    | 0.20.1 -> master | 2.2.2         |               |
-| 1.5.0                    | 0.19.11          | 2.2.1         |               |
-| 1.4.0                    | 0.19.8           | 2.0.5         |               |
-| 1.3.0                    | 0.19.4           |               |               |
-| 1.2.0                    | 0.19.0           |               |               |
-| 1.1.0                    | 0.19.0           | 2.0.2         |               |
-| 1.0.0                    | 0.18             |               |               |
 
 Build status
 -------
@@ -148,17 +138,23 @@ License
 Changelog
 -------
 
+#### 2.0.2-SNAPSHOT
+- Update versions ES 1.3.5, MongoDB 2.6.5, MongoDB driver 2.12.4, Java 7
+- Improved scaling for running multiple rivers and numerous bug fixes by @ankon of Collaborne B.V.
+- Improved TokuMX support by @kdkeck of Connectifier, Inc.
+- Support for collection names with period by @qraynaud
+
 #### 2.0.1
-- Update versions ES 1.2.2, MongoDB 2.6.5, MongoDB driver 2.12.3
-- Support for TokuMX by @kdkeck
-- TODO
+- Update versions ES 1.2.2, MongoDB 2.6.3, MongoDB driver 2.12.3
+- Support for TokuMX by @kdkeck of Connectifier, Inc.
 
 #### 2.0.0
 - Update versions ES 1.0.0, MongoDB 2.4.9, MongoDB driver 2.11.4
-- TODO
+- Detection of stale river
 
 #### 1.7.4
-- TODO
+- Make include_fields work for nested fields
+- Fix ensuring river status indicates failures
 
 #### 1.7.3
 - Update versions ES 0.90.7
@@ -230,24 +226,6 @@ Changelog
 #### 1.6.6 
 - Support for Elasticsearch 0.90.0 and MongoDB 2.4.3
 - MongoDB driver 2.11.1 (use of MongoClient)  
-
-#### 1.6.5 
-- Add support for _parent, _routing (see issue #64)
-
-#### 1.6.4 
-- Fix NPE (see issue #60)
-- Remove database user, password river settings. Local or admin user, password should be used instead.
-
-#### 1.6.3 
-- First attempt to stored the artifact in Maven central (please ignore this version
-
-#### 1.6.2 
-- Support for secured sharded collection (see issue #60)
-
-#### 1.6.0 
-- Support for sharded collection
-- Script filters
-- MongoDB driver 2.10.1 (use of MongoClient)
 
 
 Building from master

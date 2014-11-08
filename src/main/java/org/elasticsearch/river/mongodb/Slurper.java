@@ -1,14 +1,12 @@
 package org.elasticsearch.river.mongodb;
 
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.bson.BasicBSONObject;
 import org.bson.types.ObjectId;
 import org.elasticsearch.client.Client;
-import org.elasticsearch.common.base.CharMatcher;
 import org.elasticsearch.common.collect.ImmutableList;
 import org.elasticsearch.common.collect.ImmutableMap;
 import org.elasticsearch.common.logging.ESLogger;
@@ -17,6 +15,7 @@ import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.river.mongodb.util.MongoDBHelper;
 import org.elasticsearch.river.mongodb.util.MongoDBRiverHelper;
 
+import com.google.common.base.Preconditions;
 import com.mongodb.BasicDBObject;
 import com.mongodb.Bytes;
 import com.mongodb.DB;
@@ -25,8 +24,9 @@ import com.mongodb.DBCursor;
 import com.mongodb.DBObject;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoCursorNotFoundException;
-import com.mongodb.MongoException;
 import com.mongodb.MongoInterruptedException;
+import com.mongodb.MongoSocketException;
+import com.mongodb.MongoTimeoutException;
 import com.mongodb.QueryOperators;
 import com.mongodb.gridfs.GridFS;
 import com.mongodb.gridfs.GridFSDBFile;
@@ -85,15 +85,15 @@ class Slurper implements Runnable {
         while (context.getStatus() == Status.RUNNING) {
             try {
                 if (!assignCollections()) {
-                    break; // failed to assign oplogCollection or
-                           // slurpedCollection
+                    break; // failed to assign oplogCollection or slurpedCollection
                 }
 
                 Timestamp<?> startTimestamp = null;
                 if (!definition.isSkipInitialImport()) {
                     if (!riverHasIndexedFromOplog() && definition.getInitialTimestamp() == null) {
                         if (!isIndexEmpty()) {
-                            MongoDBRiverHelper.setRiverStatus(esClient, definition.getRiverName(), Status.INITIAL_IMPORT_FAILED);
+                            MongoDBRiverHelper.setRiverStatus(
+                                    esClient, definition.getRiverName(), Status.INITIAL_IMPORT_FAILED);
                             break;
                         }
                         if (definition.isImportAllCollections()) {
@@ -134,40 +134,37 @@ class Slurper implements Runnable {
                     }
                     logger.debug("Before waiting for 500 ms");
                     Thread.sleep(500);
-                } catch (MongoCursorNotFoundException e) {
-                    logger.info("Cursor {} has been closed. About to open a new cusor.", cursor.getCursorId());
-                    logger.debug("Total document inserted [{}]", totalDocuments.get());
-                } catch (SlurperException sEx) {
-                    logger.error("Exception in slurper", sEx);
-                    break;
-                } catch (Exception ex) {
-                    logger.error("Exception while looping in cursor", ex);
-                    Thread.currentThread().interrupt();
-                    break;
                 } finally {
                     if (cursor != null) {
                         logger.trace("Closing oplog cursor");
                         cursor.close();
                     }
                 }
-            } catch (MongoInterruptedException mIEx) {
-                logger.warn("Mongo driver has been interrupted", mIEx);
+            } catch (SlurperException e) {
+                logger.error("Exception in slurper", e);
                 Thread.currentThread().interrupt();
                 break;
-            } catch (MongoException e) {
-                logger.error("Mongo gave an exception", e);
-                try {
-                    Thread.sleep(5000);
-                } catch (InterruptedException iEx) {
-                }
-            } catch (NoSuchElementException e) {
-                logger.warn("A mongoDB cursor bug ?", e);
-            } catch (InterruptedException e) {
+            } catch (MongoInterruptedException | InterruptedException e) {
                 logger.info("river-mongodb slurper interrupted");
+                Thread.currentThread().interrupt();
+                break;
+            } catch (MongoSocketException | MongoTimeoutException | MongoCursorNotFoundException e) {
+                logger.info("Oplog tailing - {} - {}. Will retry.", e.getClass().getSimpleName(), e.getMessage());
+                logger.debug("Total documents inserted so far by river {}: {}", definition.getRiverName(), totalDocuments.get());
+                try {
+                    Thread.sleep(MongoDBRiver.MONGODB_RETRY_ERROR_DELAY_MS);
+                } catch (InterruptedException iEx) {
+                    logger.info("river-mongodb slurper interrupted");
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            } catch (Exception e) {
+                logger.error("Exception while looping in cursor", e);
                 Thread.currentThread().interrupt();
                 break;
             }
         }
+        logger.info("Slurper is stopping. River has status {}", context.getStatus());
     }
 
     protected boolean riverHasIndexedFromOplog() {
@@ -180,8 +177,7 @@ class Slurper implements Runnable {
 
     /**
      * Does an initial sync the same way MongoDB does.
-     * https://groups.google.com/
-     * forum/?fromgroups=#!topic/mongodb-user/sOKlhD_E2ns
+     * https://groups.google.com/forum/?fromgroups=#!topic/mongodb-user/sOKlhD_E2ns
      * 
      * @return the last oplog timestamp before the import began
      * @throws InterruptedException
@@ -208,7 +204,9 @@ class Slurper implements Runnable {
                         logger.trace("Collection {} - count: {}", collection.getName(), collection.count());
                     }
                     long count = 0;
-                    cursor = collection.find(getFilterForInitialImport(definition.getMongoCollectionFilter(), lastId));
+                    cursor = collection
+                            .find(getFilterForInitialImport(definition.getMongoCollectionFilter(), lastId))
+                            .sort(new BasicDBObject("_id", 1));
                     while (cursor.hasNext()) {
                         DBObject object = cursor.next();
                         count++;
@@ -242,9 +240,10 @@ class Slurper implements Runnable {
                     }
                     inProgress = false;
                 }
-            } catch (MongoCursorNotFoundException e) {
-                logger.debug("Initial import - Cursor {} has been closed. About to open a new cursor.", cursor.getCursorId());
+            } catch (MongoSocketException | MongoTimeoutException | MongoCursorNotFoundException e) {
+                logger.info("Initial import - {} - {}. Will retry.", e.getClass().getSimpleName(), e.getMessage());
                 logger.debug("Total documents inserted so far by river {}: {}", definition.getRiverName(), totalDocuments.get());
+                Thread.sleep(MongoDBRiver.MONGODB_RETRY_ERROR_DELAY_MS);
             } finally {
                 if (cursor != null) {
                     logger.trace("Closing initial import cursor");
@@ -259,17 +258,15 @@ class Slurper implements Runnable {
     }
 
     private BasicDBObject getFilterForInitialImport(BasicDBObject filter, String id) {
+        Preconditions.checkNotNull(filter);
         if (id == null) {
             return filter;
-        } else {
-            BasicDBObject filterId = new BasicDBObject(MongoDBRiver.MONGODB_ID_FIELD, new BasicBSONObject(QueryOperators.GT, id));
-            if (filter == null) {
-                return filterId;
-            } else {
-                List<BasicDBObject> values = ImmutableList.of(filter, filterId);
-                return new BasicDBObject(QueryOperators.AND, values);
-            }
         }
+        BasicDBObject idFilter = new BasicDBObject(MongoDBRiver.MONGODB_ID_FIELD, new BasicBSONObject(QueryOperators.GT, id));
+        if (filter.equals(new BasicDBObject())) {
+            return idFilter;
+        }
+        return new BasicDBObject(QueryOperators.AND, ImmutableList.of(filter, idFilter));
     }
 
     protected boolean assignCollections() {
@@ -301,7 +298,6 @@ class Slurper implements Runnable {
 
     private DBCursor processFullOplog() throws InterruptedException, SlurperException {
         Timestamp<?> currentTimestamp = getCurrentOplogTimestamp();
-        addQueryToStream(Operation.INSERT, currentTimestamp, null, null);
         return oplogCursor(currentTimestamp);
     }
 
