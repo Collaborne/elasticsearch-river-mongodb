@@ -119,7 +119,6 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
     protected final ScriptService scriptService;
     protected final SharedContext context;
 
-    protected volatile Thread starterThread;
     protected volatile List<Thread> tailerThreads = Lists.newArrayList();
     protected volatile Thread indexerThread;
     protected volatile Thread statusThread;
@@ -266,10 +265,6 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
     public void close() {
         logger.info("Closing river {}", riverName.getName());
         try {
-            if (starterThread != null) {
-                starterThread.interrupt();
-                starterThread = null;
-            }
             if (statusThread != null) {
                 statusThread.interrupt();
                 statusThread = null;
