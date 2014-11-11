@@ -122,7 +122,6 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
     protected volatile List<Thread> tailerThreads = Lists.newArrayList();
     protected volatile Thread indexerThread;
     protected volatile Thread statusThread;
-    protected volatile boolean startInvoked = false;
 
     private final MongoClientService mongoClientService;
 
@@ -156,15 +155,9 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
             }
             if (status == Status.STOPPED) {
                 logger.info("Cannot start river {}. It is currently disabled", riverName.getName());
-                startInvoked = true;
                 return;
             }
 
-            MongoDBRiverHelper.setRiverStatus(esClient, riverName.getName(), Status.RUNNING);
-            this.context.setStatus(Status.RUNNING);
-            for (ServerAddress server : definition.getMongoServers()) {
-                logger.debug("Using mongodb server(s): host [{}], port [{}]", server.getHost(), server.getPort());
-            }
             // http://stackoverflow.com/questions/5270611/read-maven-properties-file-inside-jar-war-file
             logger.info("{} - {}", DESCRIPTION, MongoDBHelper.getRiverVersion());
             logger.info(
@@ -172,6 +165,16 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
                     definition.isMongoSecondaryReadPreference(), definition.isDropCollection(), definition.getIncludeCollection(),
                     definition.getThrottleSize(), definition.isMongoGridFS(), definition.getMongoOplogFilter(), definition.getMongoDb(),
                     definition.getMongoCollection(), definition.getScript(), definition.getIndexName(), definition.getTypeName());
+
+
+            MongoDBRiverHelper.setRiverStatus(esClient, riverName.getName(), Status.RUNNING);
+            this.context.setStatus(Status.RUNNING);
+            for (ServerAddress server : definition.getMongoServers()) {
+                logger.debug("Using mongodb server(s): host [{}], port [{}]", server.getHost(), server.getPort());
+            }
+            statusThread = EsExecutors.daemonThreadFactory(settings.globalSettings(), "mongodb_river_status:" + definition.getIndexName()).newThread(
+                    new StatusChecker(this, definition, context));
+            statusThread.start();
 
             // Create the index if it does not exist
             try {
@@ -207,7 +210,20 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
                 }
             }
 
-            MongoConfigProvider configProvider = new MongoConfigProvider(definition, getMongoClient());
+            // Replicate data roughly the same way MongoDB does
+            // https://groups.google.com/d/msg/mongodb-user/sOKlhD_E2ns/SvngoUHXtcAJ
+            //
+            // Steps:
+            // Get oplog timestamp
+            // Do the initial import
+            // Sync from the oplog of each shard starting at timestamp
+            //
+            // Notes
+            // Primary difference between river sync and MongoDB replica sync is that we ignore chunk migrations
+            // We only need to know about CRUD commands. If data moves from one MongoDB shard to another
+            // then we do not need to let ElasticSearch know that.
+            MongoClient mongoClusterClient = mongoClientService.getMongoClusterClient(definition);
+            MongoConfigProvider configProvider = new MongoConfigProvider(mongoClientService, definition);
             MongoConfig config;
             while (true) {
                 try {
@@ -218,47 +234,52 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
                 }
             }
 
-            // Tail the oplog
-            if (config.isMongos()) {
-                for (Shard shard : config.getShards()) {
-                    Thread tailerThread = EsExecutors.daemonThreadFactory(
-                            settings.globalSettings(), "mongodb_river_slurper_" + shard.getName() + ":" + definition.getIndexName()
-                        ).newThread(new Slurper(getMongoClient(shard.getReplicas()), definition, context, esClient));
-                    tailerThreads.add(tailerThread);                   
-                }
+            Timestamp startTimestamp = null;
+            if (definition.getInitialTimestamp() != null) {
+                startTimestamp = definition.getInitialTimestamp();
+            } else if (getLastProcessedTimestamp() != null) {
+                startTimestamp = getLastProcessedTimestamp();
             } else {
-                logger.trace("Not mongos");
-                Thread tailerThread = EsExecutors.daemonThreadFactory(settings.globalSettings(), "mongodb_river_slurper:" + definition.getIndexName()).newThread(
-                        new Slurper(getMongoClient(), definition, context, esClient));
-                tailerThreads.add(tailerThread);
-            }
-
-            for (Thread thread : tailerThreads) {
-                thread.start();
+                for (Shard shard : config.getShards()) {
+                    if (startTimestamp == null || shard.getLatestOplogTimestamp().compareTo(startTimestamp) < 1) {
+                        startTimestamp = shard.getLatestOplogTimestamp();
+                    }
+                }
             }
 
             indexerThread = EsExecutors.daemonThreadFactory(settings.globalSettings(), "mongodb_river_indexer:" + definition.getIndexName()).newThread(
                     new Indexer(this, definition, context, esClient, scriptService));
             indexerThread.start();
 
-            statusThread = EsExecutors.daemonThreadFactory(settings.globalSettings(), "mongodb_river_status:" + definition.getIndexName()).newThread(
-                    new StatusChecker(this, definition, context));
-            statusThread.start();
+            // Import in main thread to block tailing the oplog            
+            CollectionSlurper importer = new CollectionSlurper(startTimestamp, mongoClusterClient, definition, context, esClient);
+            importer.run();
+
+            // Tail the oplog
+            if (config.isMongos()) {
+                for (Shard shard : config.getShards()) {
+                    MongoClient mongoClient = mongoClientService.getMongoShardClient(definition, shard.getReplicas());
+                    Thread tailerThread = EsExecutors.daemonThreadFactory(
+                            settings.globalSettings(), "mongodb_river_slurper_" + shard.getName() + ":" + definition.getIndexName()
+                        ).newThread(new OplogSlurper(shard.getLatestOplogTimestamp(), mongoClusterClient, mongoClient, definition, context, esClient));
+                    tailerThreads.add(tailerThread);                   
+                }
+            } else {
+                Shard shard = config.getShards().get(0);
+                Thread tailerThread = EsExecutors.daemonThreadFactory(
+                        settings.globalSettings(), "mongodb_river_slurper_" + shard.getName() + ":" + definition.getIndexName()
+                    ).newThread(new OplogSlurper(shard.getLatestOplogTimestamp(), mongoClusterClient, mongoClusterClient, definition, context, esClient));
+                tailerThreads.add(tailerThread);                   
+            }
+
+            for (Thread thread : tailerThreads) {
+                thread.start();
+            }
         } catch (Throwable t) {
             logger.warn("Fail to start river {}", t, riverName.getName());
             MongoDBRiverHelper.setRiverStatus(esClient, definition.getRiverName(), Status.START_FAILED);
             this.context.setStatus(Status.START_FAILED);
-        } finally {
-            startInvoked = true;
         }
-    }
-
-    private MongoClient getMongoClient() {
-        return mongoClientService.getMongoClient(definition, null);
-    }
-    
-    private MongoClient getMongoClient(List<ServerAddress> servers) {
-        return mongoClientService.getMongoClient(definition, servers);
     }
 
     @Override
@@ -285,12 +306,24 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
         }
     }
 
+    protected Timestamp<?> getLastProcessedTimestamp() {
+      return MongoDBRiver.getLastTimestamp(esClient, definition);
+    }
+
     private XContentBuilder getGridFSMapping() throws IOException {
-        XContentBuilder mapping = jsonBuilder().startObject().startObject(definition.getTypeName()).startObject("properties")
-                .startObject("content").field("type", "attachment").endObject().startObject("filename").field("type", "string").endObject()
-                .startObject("contentType").field("type", "string").endObject().startObject("md5").field("type", "string").endObject()
-                .startObject("length").field("type", "long").endObject().startObject("chunkSize").field("type", "long").endObject()
-                .endObject().endObject().endObject();
+        XContentBuilder mapping = jsonBuilder()
+            .startObject()
+                .startObject(definition.getTypeName())
+                    .startObject("properties")
+                        .startObject("content").field("type", "attachment").endObject()
+                        .startObject("filename").field("type", "string").endObject()
+                        .startObject("contentType").field("type", "string").endObject()
+                        .startObject("md5").field("type", "string").endObject()
+                        .startObject("length").field("type", "long").endObject()
+                        .startObject("chunkSize").field("type", "long").endObject()
+                    .endObject()
+               .endObject()
+           .endObject();
         logger.info("GridFS Mapping: {}", mapping.string());
         return mapping;
     }

@@ -1,21 +1,17 @@
 package org.elasticsearch.river.mongodb;
 
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.bson.BasicBSONObject;
 import org.bson.types.ObjectId;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.common.collect.ImmutableList;
-import org.elasticsearch.common.collect.ImmutableMap;
 import org.elasticsearch.common.logging.ESLogger;
 import org.elasticsearch.common.logging.ESLoggerFactory;
-import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.river.mongodb.util.MongoDBHelper;
 import org.elasticsearch.river.mongodb.util.MongoDBRiverHelper;
 
-import com.google.common.base.Preconditions;
 import com.mongodb.BasicDBObject;
 import com.mongodb.Bytes;
 import com.mongodb.DB;
@@ -33,7 +29,7 @@ import com.mongodb.gridfs.GridFSDBFile;
 import com.mongodb.gridfs.GridFSFile;
 import com.mongodb.util.JSONSerializers;
 
-class Slurper implements Runnable {
+class OplogSlurper implements Runnable {
 
     class SlurperException extends Exception {
 
@@ -44,7 +40,7 @@ class Slurper implements Runnable {
         }
     }
 
-    private static final ESLogger logger = ESLoggerFactory.getLogger(Slurper.class.getName());
+    private static final ESLogger logger = ESLoggerFactory.getLogger(OplogSlurper.class.getName());
 
     private final MongoDBRiverDefinition definition;
     private final SharedContext context;
@@ -55,17 +51,21 @@ class Slurper implements Runnable {
             MongoDBRiver.OPLOG_UPDATE_ROW_OPERATION, // from TokuMX
             MongoDBRiver.OPLOG_UPDATE_OPERATION, MongoDBRiver.OPLOG_INSERT_OPERATION, MongoDBRiver.OPLOG_COMMAND_OPERATION);
     private final Client esClient;
-    private final MongoClient mongoClient;
-    private DB slurpedDb;
-    private DB oplogDb;
-    private DBCollection oplogCollection, oplogRefsCollection;
+    private final MongoClient mongoClusterClient;
+    private final MongoClient mongoShardClient;
+    private Timestamp<?> timestamp;
+    private final DB slurpedDb;
+    private final DB oplogDb;
+    private final DBCollection oplogCollection, oplogRefsCollection;
     private final AtomicLong totalDocuments = new AtomicLong();
 
-    public Slurper(MongoClient mongoClient, MongoDBRiverDefinition definition, SharedContext context, Client esClient) {
+    public OplogSlurper(Timestamp<?> timestamp, MongoClient mongoClusterClient, MongoClient mongoShardClient, MongoDBRiverDefinition definition, SharedContext context, Client esClient) {
+        this.timestamp = timestamp;
         this.definition = definition;
         this.context = context;
         this.esClient = esClient;
-        this.mongoClient = mongoClient;
+        this.mongoClusterClient = mongoClusterClient;
+        this.mongoShardClient = mongoShardClient;
         this.findKeys = new BasicDBObject();
         this.gridfsOplogNamespace = definition.getMongoOplogNamespace() + MongoDBRiver.GRIDFS_FILES_SUFFIX;
         this.cmdOplogNamespace = definition.getMongoDb() + "." + MongoDBRiver.OPLOG_NAMESPACE_COMMAND;
@@ -78,44 +78,20 @@ class Slurper implements Runnable {
                 findKeys.put(key, 1);
             }
         }
+        this.oplogDb = mongoShardClient.getDB(MongoDBRiver.MONGODB_LOCAL_DATABASE);
+        this.oplogCollection = oplogDb.getCollection(MongoDBRiver.OPLOG_COLLECTION);
+        this.oplogRefsCollection = oplogDb.getCollection(MongoDBRiver.OPLOG_REFS_COLLECTION);
+        this.slurpedDb = mongoShardClient.getDB(definition.getMongoDb());
     }
 
     @Override
     public void run() {
         while (context.getStatus() == Status.RUNNING) {
-            try {
-                if (!assignCollections()) {
-                    break; // failed to assign oplogCollection or slurpedCollection
-                }
-
-                Timestamp<?> startTimestamp = null;
-                if (!definition.isSkipInitialImport()) {
-                    if (!riverHasIndexedFromOplog() && definition.getInitialTimestamp() == null) {
-                        if (!isIndexEmpty()) {
-                            MongoDBRiverHelper.setRiverStatus(
-                                    esClient, definition.getRiverName(), Status.INITIAL_IMPORT_FAILED);
-                            break;
-                        }
-                        if (definition.isImportAllCollections()) {
-                            for (String name : slurpedDb.getCollectionNames()) {
-                                if (name.length() < 7 || !name.substring(0, 7).equals("system.")) {
-                                    DBCollection collection = slurpedDb.getCollection(name);
-                                    startTimestamp = doInitialImport(collection);
-                                }
-                            }
-                        } else {
-                            DBCollection collection = slurpedDb.getCollection(definition.getMongoCollection());
-                            startTimestamp = doInitialImport(collection);
-                        }
-                    }
-                } else {
-                    logger.info("Skip initial import from collection {}", definition.getMongoCollection());
-                }
-
+            try {        
                 // Slurp from oplog
                 DBCursor cursor = null;
                 try {
-                    cursor = oplogCursor(startTimestamp);
+                    cursor = oplogCursor(timestamp);
                     if (cursor == null) {
                         cursor = processFullOplog();
                     }
@@ -130,7 +106,7 @@ class Slurper implements Runnable {
                             logger.debug("Encountered oplog entry with a:false, ts:" + item.get("ts"));
                             break;
                         }
-                        startTimestamp = processOplogEntry(item, startTimestamp);
+                        timestamp = processOplogEntry(item, timestamp);
                     }
                     logger.debug("Before waiting for 500 ms");
                     Thread.sleep(500);
@@ -143,11 +119,11 @@ class Slurper implements Runnable {
             } catch (SlurperException e) {
                 logger.error("Exception in slurper", e);
                 Thread.currentThread().interrupt();
-                break;
+                return;
             } catch (MongoInterruptedException | InterruptedException e) {
                 logger.info("river-mongodb slurper interrupted");
                 Thread.currentThread().interrupt();
-                break;
+                return;
             } catch (MongoSocketException | MongoTimeoutException | MongoCursorNotFoundException e) {
                 logger.info("Oplog tailing - {} - {}. Will retry.", e.getClass().getSimpleName(), e.getMessage());
                 logger.debug("Total documents inserted so far by river {}: {}", definition.getRiverName(), totalDocuments.get());
@@ -156,12 +132,12 @@ class Slurper implements Runnable {
                 } catch (InterruptedException iEx) {
                     logger.info("river-mongodb slurper interrupted");
                     Thread.currentThread().interrupt();
-                    break;
+                    return;
                 }
             } catch (Exception e) {
                 logger.error("Exception while looping in cursor", e);
                 Thread.currentThread().interrupt();
-                break;
+                return;
             }
         }
         logger.info("Slurper is stopping. River has status {}", context.getStatus());
@@ -173,121 +149,6 @@ class Slurper implements Runnable {
 
     protected boolean isIndexEmpty() {
         return MongoDBRiver.getIndexCount(esClient, definition) == 0;
-    }
-
-    /**
-     * Does an initial sync the same way MongoDB does.
-     * https://groups.google.com/forum/?fromgroups=#!topic/mongodb-user/sOKlhD_E2ns
-     * 
-     * @return the last oplog timestamp before the import began
-     * @throws InterruptedException
-     *             if the blocking queue stream is interrupted while waiting
-     */
-    protected Timestamp<?> doInitialImport(DBCollection collection) throws InterruptedException {
-        // TODO: ensure the index type is empty
-        // DBCollection slurpedCollection =
-        // slurpedDb.getCollection(definition.getMongoCollection());
-
-        logger.info("MongoDBRiver is beginning initial import of " + collection.getFullName());
-        Timestamp<?> startTimestamp = getCurrentOplogTimestamp();
-        boolean inProgress = true;
-        String lastId = null;
-        while (inProgress) {
-            DBCursor cursor = null;
-            try {
-                if (definition.isDisableIndexRefresh()) {
-                    updateIndexRefresh(definition.getIndexName(), -1L);
-                }
-                if (!definition.isMongoGridFS()) {
-                    if (logger.isTraceEnabled()) {
-                        // Note: collection.count() is expensive on TokuMX
-                        logger.trace("Collection {} - count: {}", collection.getName(), collection.count());
-                    }
-                    long count = 0;
-                    cursor = collection
-                            .find(getFilterForInitialImport(definition.getMongoCollectionFilter(), lastId))
-                            .sort(new BasicDBObject("_id", 1));
-                    while (cursor.hasNext()) {
-                        DBObject object = cursor.next();
-                        count++;
-                        if (cursor.hasNext()) {
-                            lastId = addInsertToStream(null, applyFieldFilter(object), collection.getName());
-                        } else {
-                            logger.debug("Last entry for initial import of {} - add timestamp: {}", collection.getFullName(), startTimestamp);
-                            lastId = addInsertToStream(startTimestamp, applyFieldFilter(object), collection.getName());
-                        }
-                    }
-                    inProgress = false;
-                    logger.info("Number of documents indexed in initial import of {}: {}", collection.getFullName(), count);
-                } else {
-                    // TODO: To be optimized.
-                    // https://github.com/mongodb/mongo-java-driver/pull/48#issuecomment-25241988
-                    // possible option: Get the object id list from .fs collection then call GriDFS.findOne
-                    GridFS grid = new GridFS(mongoClient.getDB(definition.getMongoDb()), definition.getMongoCollection());
-
-                    cursor = grid.getFileList();
-                    while (cursor.hasNext()) {
-                        DBObject object = cursor.next();
-                        if (object instanceof GridFSDBFile) {
-                            GridFSDBFile file = grid.findOne(new ObjectId(object.get(MongoDBRiver.MONGODB_ID_FIELD).toString()));
-                            if (cursor.hasNext()) {
-                                lastId = addInsertToStream(null, file);
-                            } else {
-                                logger.debug("Last entry for initial import of {} - add timestamp: {}", collection.getFullName(), startTimestamp);
-                                lastId = addInsertToStream(startTimestamp, file);
-                            }
-                        }
-                    }
-                    inProgress = false;
-                }
-            } catch (MongoSocketException | MongoTimeoutException | MongoCursorNotFoundException e) {
-                logger.info("Initial import - {} - {}. Will retry.", e.getClass().getSimpleName(), e.getMessage());
-                logger.debug("Total documents inserted so far by river {}: {}", definition.getRiverName(), totalDocuments.get());
-                Thread.sleep(MongoDBRiver.MONGODB_RETRY_ERROR_DELAY_MS);
-            } finally {
-                if (cursor != null) {
-                    logger.trace("Closing initial import cursor");
-                    cursor.close();
-                }
-                if (definition.isDisableIndexRefresh()) {
-                    updateIndexRefresh(definition.getIndexName(), TimeValue.timeValueSeconds(1));
-                }
-            }
-        }
-        return startTimestamp;
-    }
-
-    private BasicDBObject getFilterForInitialImport(BasicDBObject filter, String id) {
-        Preconditions.checkNotNull(filter);
-        if (id == null) {
-            return filter;
-        }
-        BasicDBObject idFilter = new BasicDBObject(MongoDBRiver.MONGODB_ID_FIELD, new BasicBSONObject(QueryOperators.GT, id));
-        if (filter.equals(new BasicDBObject())) {
-            return idFilter;
-        }
-        return new BasicDBObject(QueryOperators.AND, ImmutableList.of(filter, idFilter));
-    }
-
-    protected boolean assignCollections() {
-        logger.info("Local DB auth against local user: " + definition.getMongoLocalUser());
-        oplogDb = mongoClient.getDB(MongoDBRiver.MONGODB_LOCAL_DATABASE);
-
-        Set<String> collections = oplogDb.getCollectionNames();
-        if (!collections.contains(MongoDBRiver.OPLOG_COLLECTION)) {
-            logger.error("Cannot find " + MongoDBRiver.OPLOG_COLLECTION + " collection. Please check this link: http://goo.gl/2x5IW");
-            return false;
-        }
-        oplogCollection = oplogDb.getCollection(MongoDBRiver.OPLOG_COLLECTION);
-        oplogRefsCollection = oplogDb.getCollection(MongoDBRiver.OPLOG_REFS_COLLECTION);
-
-        slurpedDb = mongoClient.getDB(definition.getMongoDb());
-
-        return true;
-    }
-
-    private void updateIndexRefresh(String name, Object value) {
-        esClient.admin().indices().prepareUpdateSettings(name).setSettings(ImmutableMap.of("index.refresh_interval", value)).get();
     }
 
     private Timestamp<?> getCurrentOplogTimestamp() {
@@ -382,7 +243,7 @@ class Slurper implements Runnable {
             if (objectId == null) {
                 throw new NullPointerException(MongoDBRiver.MONGODB_ID_FIELD);
             }
-            GridFS grid = new GridFS(mongoClient.getDB(definition.getMongoDb()), collection);
+            GridFS grid = new GridFS(mongoShardClient.getDB(definition.getMongoDb()), collection);
             GridFSDBFile file = grid.findOne(new ObjectId(objectId));
             if (file != null) {
                 logger.trace("Caught file: {} - {}", file.getId(), file.getFilename());
@@ -457,7 +318,8 @@ class Slurper implements Runnable {
                 if (to.startsWith(definition.getMongoDb())) {
                     String newCollection = getCollectionFromNamespace(to);
                     DBCollection coll = slurpedDb.getCollection(newCollection);
-                    doInitialImport(coll);
+                    CollectionSlurper importer = new CollectionSlurper(timestamp, mongoClusterClient, definition, context, esClient);
+                    importer.importCollection(coll);
                 }
             }
         }
@@ -591,11 +453,7 @@ class Slurper implements Runnable {
         return null;
     }
 
-    private DBCursor oplogCursor(final Timestamp<?> timestampOverride) throws SlurperException {
-        Timestamp<?> time = timestampOverride == null ? MongoDBRiver.getLastTimestamp(esClient, definition) : timestampOverride;
-        if (time == null) {
-            return null;
-        }
+    private DBCursor oplogCursor(final Timestamp<?> time) throws SlurperException {
         DBObject indexFilter = time.getOplogFilter();
         if (indexFilter == null) {
             return null;
@@ -655,10 +513,6 @@ class Slurper implements Runnable {
                 addToStream(operation, currentTimestamp, item, collection);
             }
         }
-    }
-
-    private String addInsertToStream(final Timestamp<?> currentTimestamp, final DBObject data) throws InterruptedException {
-        return addInsertToStream(currentTimestamp, data, definition.getMongoCollection());
     }
 
     private String addInsertToStream(final Timestamp<?> currentTimestamp, final DBObject data, final String collection)
