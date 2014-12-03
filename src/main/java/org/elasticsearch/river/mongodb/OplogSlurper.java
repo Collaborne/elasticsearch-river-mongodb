@@ -465,6 +465,8 @@ class OplogSlurper implements Runnable {
                 | Bytes.QUERYOPTION_OPLOGREPLAY;
 
         DBCursor cursor = oplogCollection.find(indexFilter).setOptions(options);
+        // JAVA-591: Disable tracking of received batch sizes to avoid out-of-memory situations
+        cursor.disableBatchSizeTracking();
 
         // Toku sometimes gets stuck without this hint:
         if (indexFilter.containsField(MongoDBRiver.MONGODB_ID_FIELD)) {
