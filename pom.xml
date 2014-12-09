@@ -188,6 +188,14 @@
 		</dependency>
 	</dependencies>
 
+	<distributionManagement>
+		<repository>
+			<id>collaborne-thirdparty-repository</id>
+			<url>s3://collaborne-repository/maven/thirdparty</url>
+			<layout>default</layout>
+		</repository>
+	</distributionManagement>
+
 	<build>
 		<extensions>
 			<extension>
