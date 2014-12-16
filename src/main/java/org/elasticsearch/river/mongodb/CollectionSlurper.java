@@ -59,6 +59,7 @@ class CollectionSlurper {
                 // MongoDB would delete the index and re-attempt the import
                 // We should probably do that too or at least have an option for it
                 // https://groups.google.com/d/msg/mongodb-user/hrOuS-lpMeI/opP6l0gndSEJ
+                logger.error("Cannot import collection {} into existing index", definition.getMongoCollection());
                 MongoDBRiverHelper.setRiverStatus(
                         esClient, definition.getRiverName(), Status.INITIAL_IMPORT_FAILED);
                 return;
