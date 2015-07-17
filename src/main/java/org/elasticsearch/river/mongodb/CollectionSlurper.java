@@ -7,14 +7,13 @@ import org.bson.types.ObjectId;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.common.collect.ImmutableList;
 import org.elasticsearch.common.collect.ImmutableMap;
-import org.elasticsearch.common.logging.ESLogger;
-import org.elasticsearch.common.logging.ESLoggerFactory;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.river.mongodb.util.MongoDBHelper;
 import org.elasticsearch.river.mongodb.util.MongoDBRiverHelper;
 
 import com.google.common.base.Preconditions;
 import com.mongodb.BasicDBObject;
+import com.mongodb.CommandResult;
 import com.mongodb.DB;
 import com.mongodb.DBCollection;
 import com.mongodb.DBCursor;
@@ -29,9 +28,7 @@ import com.mongodb.gridfs.GridFS;
 import com.mongodb.gridfs.GridFSDBFile;
 import com.mongodb.gridfs.GridFSFile;
 
-class CollectionSlurper {
-
-    private static final ESLogger logger = ESLoggerFactory.getLogger(CollectionSlurper.class.getName());
+class CollectionSlurper extends MongoDBRiverComponent {
 
     private final MongoDBRiverDefinition definition;
     private final SharedContext context;
@@ -40,10 +37,11 @@ class CollectionSlurper {
     private final DB slurpedDb;
     private final AtomicLong totalDocuments = new AtomicLong();
 
-    public CollectionSlurper(MongoClient mongoClient, MongoDBRiverDefinition definition, SharedContext context, Client esClient) {
-        this.definition = definition;
-        this.context = context;
-        this.esClient = esClient;
+    public CollectionSlurper(MongoDBRiver river, MongoClient mongoClient) {
+        super(river);
+        this.definition = river.definition;
+        this.context = river.context;
+        this.esClient = river.esClient;
         this.mongoClient = mongoClient;
         this.slurpedDb = mongoClient.getDB(definition.getMongoDb());
     }
@@ -83,7 +81,7 @@ class CollectionSlurper {
             return;
         } catch (MongoSocketException | MongoTimeoutException | MongoCursorNotFoundException e) {
             logger.info("Oplog tailing - {} - {}. Will retry.", e.getClass().getSimpleName(), e.getMessage());
-            logger.debug("Total documents inserted so far by river {}: {}", definition.getRiverName(), totalDocuments.get());
+            logger.debug("Total documents inserted so far: {}", totalDocuments.get());
             try {
                 Thread.sleep(MongoDBRiver.MONGODB_RETRY_ERROR_DELAY_MS);
             } catch (InterruptedException iEx) {
@@ -127,7 +125,7 @@ class CollectionSlurper {
                 if (!definition.isMongoGridFS()) {
                     if (logger.isTraceEnabled()) {
                         // Note: collection.count() is expensive on TokuMX
-                        logger.trace("Collection {} - count: {}", collection.getName(), collection.count());
+                        logger.trace("Collection {} - count: {}", collection.getName(), safeCount(collection, timestamp.getClass()));
                     }
                     long count = 0;
                     cursor = collection
@@ -168,7 +166,7 @@ class CollectionSlurper {
                 }
             } catch (MongoSocketException | MongoTimeoutException | MongoCursorNotFoundException e) {
                 logger.info("Initial import - {} - {}. Will retry.", e.getClass().getSimpleName(), e.getMessage());
-                logger.debug("Total documents inserted so far by river {}: {}", definition.getRiverName(), totalDocuments.get());
+                logger.debug("Total documents inserted so far: {}", totalDocuments.get());
                 Thread.sleep(MongoDBRiver.MONGODB_RETRY_ERROR_DELAY_MS);
             } finally {
                 if (cursor != null) {
@@ -180,6 +178,17 @@ class CollectionSlurper {
                 }
             }
         }
+    }
+
+    /**
+     * Only calls DBCollection.count() when using vanilla MongoDB; otherwise gets estimate from collection.getStats()
+     */
+    private String safeCount(DBCollection collection, Class<? extends Timestamp> type) {
+        if (type.equals(Timestamp.BSON.class)) {
+            return "" + collection.count(); // Vanilla MongoDB can quickly return precise count
+        }
+        CommandResult stats = collection.getStats();
+        return "~" + (!stats.containsField("count") ? 0l : stats.getLong("count"));
     }
 
     private BasicDBObject getFilterForInitialImport(BasicDBObject filter, String id) {

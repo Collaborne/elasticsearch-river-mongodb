@@ -8,8 +8,6 @@ import java.util.concurrent.Callable;
 
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.common.collect.ImmutableMap;
-import org.elasticsearch.common.logging.ESLogger;
-import org.elasticsearch.common.logging.ESLoggerFactory;
 import org.elasticsearch.river.mongodb.MongoConfig.Shard;
 
 import com.mongodb.BasicDBObject;
@@ -23,31 +21,29 @@ import com.mongodb.MongoClient;
 import com.mongodb.ReadPreference;
 import com.mongodb.ServerAddress;
 
-public class MongoConfigProvider implements Callable<MongoConfig> {
-
-    private static final ESLogger logger = ESLoggerFactory.getLogger(MongoConfigProvider.class.getName());
+public class MongoConfigProvider extends MongoDBRiverComponent implements Callable<MongoConfig> {
 
     private final MongoClientService mongoClientService;
     private final MongoDBRiverDefinition definition;
     private final MongoClient clusterClient;
 
-    public MongoConfigProvider(MongoClientService mongoClientService, MongoDBRiverDefinition definition) {
+    public MongoConfigProvider(MongoDBRiver river, MongoClientService mongoClientService) {
+        super(river);
         this.mongoClientService = mongoClientService;
-        this.definition= definition;
+        this.definition = river.definition;
         this.clusterClient = mongoClientService.getMongoClusterClient(definition);
     }
 
     @Override
     public MongoConfig call() {
-        ensureIsReplicaSet();
         boolean isMongos = isMongos();
         List<Shard> shards = getShards(isMongos);
         MongoConfig config = new MongoConfig(isMongos, shards);
         return config;
     }
 
-    protected boolean ensureIsReplicaSet() {
-        Set<String> collections = clusterClient.getDB(MongoDBRiver.MONGODB_LOCAL_DATABASE).getCollectionNames();
+    protected boolean ensureIsReplicaSet(MongoClient shardClient) {
+        Set<String> collections = shardClient.getDB(MongoDBRiver.MONGODB_LOCAL_DATABASE).getCollectionNames();
         if (!collections.contains(MongoDBRiver.OPLOG_COLLECTION)) {
             throw new IllegalStateException("Cannot find " + MongoDBRiver.OPLOG_COLLECTION + " collection. Please check this link: http://docs.mongodb.org/manual/tutorial/deploy-replica-set/");
         }
@@ -124,6 +120,7 @@ public class MongoConfigProvider implements Callable<MongoConfig> {
                     if (shardServers != null) {
                         String shardName = item.get(MongoDBRiver.MONGODB_ID_FIELD).toString();
                         MongoClient shardClient = mongoClientService.getMongoShardClient(definition, shardServers);
+                        ensureIsReplicaSet(shardClient);
                         Timestamp<?> latestOplogTimestamp = getCurrentOplogTimestamp(shardClient);
                         shards.add(new Shard(shardName, shardServers, latestOplogTimestamp));
                     }
@@ -131,6 +128,7 @@ public class MongoConfigProvider implements Callable<MongoConfig> {
             }
             return shards;
         } else {
+            ensureIsReplicaSet(clusterClient);
             List<ServerAddress> servers = clusterClient.getServerAddressList();
             Timestamp<?> latestOplogTimestamp = getCurrentOplogTimestamp(clusterClient);
             shards.add(new Shard("unsharded", servers, latestOplogTimestamp));
