@@ -464,9 +464,6 @@ class OplogSlurper extends MongoDBRiverComponent implements Runnable {
                 | Bytes.QUERYOPTION_OPLOGREPLAY;
 
         DBCursor cursor = oplogCollection.find(indexFilter).setOptions(options);
-        // Disable tracking of received batch sizes to avoid out-of-memory situations
-        // https://jira.mongodb.org/browse/JAVA-591
-        cursor.disableBatchSizeTracking();
         //      This means many more requests when there is traffic on the oplog, but it should help
         //      auto-tuning the whole mongodb->river->es system by moving the bottleneck to es's indexing.
         cursor.batchSize(20);

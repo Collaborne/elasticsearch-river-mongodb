@@ -171,7 +171,7 @@ class Indexer extends MongoDBRiverComponent implements Runnable {
                 }
                 try {
                     ExecutableScript executableScript = scriptService.executable(definition.getScriptType(), definition.getScript(),
-                            ScriptService.ScriptType.INLINE, ImmutableMap.of("logger", logger));
+                            ScriptService.ScriptType.INLINE, ImmutableMap.<String, Object>of("logger", logger));
                     executableScript.setNextVar("ctx", ctx);
                     executableScript.run();
                     // we need to unwrap the context object...
@@ -316,7 +316,7 @@ class Indexer extends MongoDBRiverComponent implements Runnable {
                 ctx.put("documents", documents);
                 try {
                     ExecutableScript executableScript = scriptService.executable(definition.getScriptType(), definition.getScript(),
-                            ScriptService.ScriptType.INLINE, ImmutableMap.of("logger", logger));
+                            ScriptService.ScriptType.INLINE, ImmutableMap.<String, Object>of("logger", logger));
                     if (logger.isTraceEnabled()) {
                         logger.trace("Script to be executed: {} - {}", definition.getScriptType(), definition.getScript());
                         logger.trace("Context before script executed: {}", ctx);
@@ -416,7 +416,7 @@ class Indexer extends MongoDBRiverComponent implements Runnable {
     private Map<String, Object> convertDbRef(DBRef ref) {
         Map<String, Object> obj = new HashMap<String, Object>();
         obj.put("id", ref.getId());
-        obj.put("ref", ref.getRef());
+        obj.put("ref", ref.getCollectionName());
 
         return obj;
     }
