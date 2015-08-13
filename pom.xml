@@ -101,6 +101,28 @@
 				</plugins>
 			</build>
 		</profile>
+		<profile>
+			<id>sign-artifacts</id>
+
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-gpg-plugin</artifactId>
+						<version>1.4</version>
+						<executions>
+							<execution>
+								<id>sign-artifacts</id>
+								<phase>verify</phase>
+								<goals>
+									<goal>sign</goal>
+								</goals>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
 	</profiles>
 	<repositories>
 		<repository>
@@ -363,20 +385,6 @@
 				</executions>
 			</plugin>
 			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-gpg-plugin</artifactId>
-				<version>1.4</version>
-				<executions>
-					<execution>
-						<id>sign-artifacts</id>
-						<phase>verify</phase>
-						<goals>
-							<goal>sign</goal>
-						</goals>
-					</execution>
-				</executions>
-			</plugin>
-			<plugin>
 				<groupId>org.codehaus.mojo</groupId>
 				<artifactId>buildnumber-maven-plugin</artifactId>
 				<version>1.2</version>
@@ -399,6 +407,7 @@
 				<version>2.5.1</version>
 				<configuration>
 					<arguments>${release.arguments}</arguments>
+					<releaseProfiles>sign-artifacts</releaseProfiles>
 				</configuration>
 			</plugin>
 		</plugins>
@@ -448,5 +457,4 @@
 			</plugins>
 		</pluginManagement>
 	</build>
-
 </project>
