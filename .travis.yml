@@ -1,0 +1,10 @@
+language: java
+after_success: "[ ${TRAVIS_PULL_REQUEST} = 'false' ] && [ ${TRAVIS_BRANCH} = 'master-collaborne' ] && mvn deploy -DskipTests=true -B --settings deploy-settings.xml"
+jdk:
+  - oraclejdk7
+script: mvn test
+cache:
+  directories:
+    - $HOME/.m2/repository
+before_cache:
+  - find $HOME/.m2/repository/ -depth -type d -name '*-SNAPSHOT' -exec rm -rf {} \;
