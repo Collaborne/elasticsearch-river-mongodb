@@ -1,3 +1,4 @@
+sudo: false
 language: java
 after_success: "[ ${TRAVIS_PULL_REQUEST} = 'false' ] && [ ${TRAVIS_BRANCH} = 'master-collaborne' ] && mvn deploy -DskipTests=true -B --settings deploy-settings.xml"
 jdk:
