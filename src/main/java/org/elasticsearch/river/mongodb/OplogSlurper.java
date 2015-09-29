@@ -506,7 +506,7 @@ class OplogSlurper extends MongoDBRiverComponent implements Runnable {
         Timestamp<?> oplogTimestamp = Timestamp.on(entry);
         if (!time.equals(oplogTimestamp)) {
             MongoDBRiverHelper.setRiverStatus(esClient, definition.getRiverName(), Status.RIVER_STALE);
-            throw new SlurperException("River out of sync with oplog.rs collection");
+            throw new SlurperException("River out of sync with oplog.rs collection: expected " + time + ", found " + oplogTimestamp);
         }
     }
 
