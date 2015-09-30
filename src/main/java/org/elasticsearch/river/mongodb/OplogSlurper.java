@@ -100,7 +100,7 @@ class OplogSlurper extends MongoDBRiverComponent implements Runnable {
                     // and then proceed back to blocking until the cursor is killed on the server side,
                     // or we're interrupted.
                     logger.debug("Starting blocking wait for cursor");
-                    while (cursor.hasNext()) {
+                    BLOCKING: while (cursor.hasNext()) {
                         int processedOplogItems = 0;
                         int newEntries = 0;
                         DBObject item;
@@ -112,7 +112,7 @@ class OplogSlurper extends MongoDBRiverComponent implements Runnable {
                             Object applied = item.get("a");
                             if (applied != null && !applied.equals(Boolean.TRUE)) {
                                 logger.debug("Encountered oplog entry with a:false, ts:" + item.get("ts"));
-                                break;
+                                break BLOCKING;
                             }
                             newEntries += processOplogEntry(item, timestamp);
                             processedOplogItems++;
