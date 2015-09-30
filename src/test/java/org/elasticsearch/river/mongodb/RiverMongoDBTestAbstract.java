@@ -110,17 +110,11 @@ public abstract class RiverMongoDBTestAbstract {
             private ServerAddress address;
         }
 
-        private final ExecutableType type;
-        private final String version;
         public final Mongo mongo;
-        private final DB mongoAdminDB;
         private final ImmutableList<Member> members;
 
-        public MongoReplicaSet(ExecutableType type, String version, Mongo mongo, DB mongoAdminDB, ImmutableList<Member> members) {
-            this.type = type;
-            this.version = version;
+        public MongoReplicaSet(Mongo mongo, ImmutableList<Member> members) {
             this.mongo = mongo;
-            this.mongoAdminDB = mongoAdminDB;
             this.members = members;
         }
     }
@@ -333,7 +327,7 @@ public abstract class RiverMongoDBTestAbstract {
         Assert.assertNotNull(mongo);
         mongo.setReadPreference(ReadPreference.secondaryPreferred());
         mongo.setWriteConcern(WriteConcern.REPLICAS_SAFE);
-        replicaSets.put(type, new MongoReplicaSet(type, rsSettings.get("version"), mongo, mongoAdminDB, members));
+        replicaSets.put(type, new MongoReplicaSet(mongo, members));
     }
 
     private boolean isReplicaSetStarted(BasicDBObject setting) {
