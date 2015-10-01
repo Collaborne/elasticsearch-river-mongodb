@@ -164,45 +164,43 @@ class Indexer extends MongoDBRiverComponent implements Runnable {
         Map<String, Object> ctx = new HashMap<>();
         Map<String, Object> data = entry.getData().toMap();
         if (hasScript()) {
-            if (ctx != null) {
-                ctx.put("document", entry.getData());
-                ctx.put("operation", operation.getValue());
-                if (!objectId.isEmpty()) {
-                    ctx.put("id", objectId);
-                }
-                if (logger.isTraceEnabled()) {
-                    logger.trace("Script to be executed: {} - {}", definition.getScriptType(), definition.getScript());
-                    logger.trace("Context before script executed: {}", ctx);
-                }
-                try {
-                    ExecutableScript executableScript = scriptService.executable(definition.getScriptType(), definition.getScript(),
-                            ScriptService.ScriptType.INLINE, ImmutableMap.<String, Object>of("logger", logger));
-                    executableScript.setNextVar("ctx", ctx);
-                    executableScript.run();
-                    // we need to unwrap the context object...
-                    ctx = (Map<String, Object>) executableScript.unwrap(ctx);
-                } catch (Exception e) {
-                    logger.warn("failed to script process {}, ignoring", e, ctx);
-                    MongoDBRiverHelper.setRiverStatus(esClient, definition.getRiverName(), Status.SCRIPT_IMPORT_FAILED);
-                }
-                if (logger.isTraceEnabled()) {
-                    logger.trace("Context after script executed: {}", ctx);
-                }
-                if (isDocumentIgnored(ctx)) {
-                    logger.trace("From script ignore document id: {}", objectId);
-                    // ignore document
-                    return;
-                }
-                if (isDocumentDeleted(ctx)) {
-                    ctx.put("operation", MongoDBRiver.OPLOG_DELETE_OPERATION);
-                }
-                if (ctx.containsKey("document")) {
-                    data = (Map<String, Object>) ctx.get("document");
-                    logger.trace("From script document: {}", data);
-                }
-                operation = extractOperation(ctx);
-                logger.trace("From script operation: {} -> {}", ctx.get("operation").toString(), operation);
+            ctx.put("document", entry.getData());
+            ctx.put("operation", operation.getValue());
+            if (!objectId.isEmpty()) {
+                ctx.put("id", objectId);
             }
+            if (logger.isTraceEnabled()) {
+                logger.trace("Script to be executed: {} - {}", definition.getScriptType(), definition.getScript());
+                logger.trace("Context before script executed: {}", ctx);
+            }
+            try {
+                ExecutableScript executableScript = scriptService.executable(definition.getScriptType(), definition.getScript(),
+                        ScriptService.ScriptType.INLINE, ImmutableMap.<String, Object>of("logger", logger));
+                executableScript.setNextVar("ctx", ctx);
+                executableScript.run();
+                // we need to unwrap the context object...
+                ctx = (Map<String, Object>) executableScript.unwrap(ctx);
+            } catch (Exception e) {
+                logger.warn("failed to script process {}, ignoring", e, ctx);
+                MongoDBRiverHelper.setRiverStatus(esClient, definition.getRiverName(), Status.SCRIPT_IMPORT_FAILED);
+            }
+            if (logger.isTraceEnabled()) {
+                logger.trace("Context after script executed: {}", ctx);
+            }
+            if (isDocumentIgnored(ctx)) {
+                logger.trace("From script ignore document id: {}", objectId);
+                // ignore document
+                return;
+            }
+            if (isDocumentDeleted(ctx)) {
+                ctx.put("operation", MongoDBRiver.OPLOG_DELETE_OPERATION);
+            }
+            if (ctx.containsKey("document")) {
+                data = (Map<String, Object>) ctx.get("document");
+                logger.trace("From script document: {}", data);
+            }
+            operation = extractOperation(ctx);
+            logger.trace("From script operation: {} -> {}", ctx.get("operation").toString(), operation);
         }
 
         try {
