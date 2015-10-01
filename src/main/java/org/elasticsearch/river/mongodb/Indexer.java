@@ -380,7 +380,7 @@ class Indexer extends MongoDBRiverComponent implements Runnable {
             logger.info("Add Attachment: {} to index {} / type {}", objectId, definition.getIndexName(), definition.getTypeName());
             return MongoDBHelper.serialize((GridFSDBFile) data);
         } else {
-            Map<String, Object> mapData = this.createObjectMap(data);
+            Map<String, Object> mapData = createObjectMap(data);
             return XContentFactory.jsonBuilder().map(mapData);
         }
     }
