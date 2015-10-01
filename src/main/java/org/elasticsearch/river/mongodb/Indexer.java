@@ -328,8 +328,9 @@ class Indexer extends MongoDBRiverComponent implements Runnable {
         if (logger.isTraceEnabled()) {
             logger.trace("Context after script executed: {}", ctx);
         }
-        if (ctx.containsKey("documents") && ctx.get("documents") instanceof List<?>) {
-            documents = (List<Object>) ctx.get("documents");
+        Object newDocuments = ctx.get("documents");
+        if (newDocuments instanceof List<?>) {
+            documents = (List<Object>) newDocuments;
             for (Object object : documents) {
                 if (object instanceof Map<?, ?>) {
                     Map<String, Object> item = (Map<String, Object>) object;
