@@ -27,7 +27,9 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
@@ -87,6 +89,7 @@ import de.flapdoodle.embed.mongo.MongodExecutable;
 import de.flapdoodle.embed.mongo.MongodProcess;
 import de.flapdoodle.embed.mongo.MongodStarter;
 import de.flapdoodle.embed.mongo.config.IMongodConfig;
+import de.flapdoodle.embed.mongo.config.MongoCmdOptionsBuilder;
 import de.flapdoodle.embed.mongo.config.MongodConfigBuilder;
 import de.flapdoodle.embed.mongo.config.RuntimeConfigBuilder;
 import de.flapdoodle.embed.mongo.config.Storage;
@@ -130,6 +133,11 @@ public abstract class RiverMongoDBTestAbstract {
             public RuntimeConfigBuilder newRuntimeConfigBuilder() {
                 return new RuntimeConfigBuilder();
             }
+            
+            @Override
+            protected MongodConfigBuilder newMongodConfigBuilder() throws UnknownHostException, IOException {
+                return new MongodConfigBuilder(); 
+            }
         },
         TOKUMX("tokumx", tokuIsSupported(), false) {
             @Override
@@ -140,6 +148,12 @@ public abstract class RiverMongoDBTestAbstract {
             @Override
             public RuntimeConfigBuilder newRuntimeConfigBuilder() {
                 return new TokuRuntimeConfigBuilder();
+            }
+            
+            @Override
+            protected MongodConfigBuilder newMongodConfigBuilder() throws UnknownHostException, IOException {
+                // FIXME: Set the redzone parameter
+                return new MongodConfigBuilder();
             }
         };
 
@@ -156,6 +170,8 @@ public abstract class RiverMongoDBTestAbstract {
         public abstract Starter<IMongodConfig, MongodExecutable, MongodProcess> newStarter();
 
         protected abstract RuntimeConfigBuilder newRuntimeConfigBuilder();
+        
+        protected abstract MongodConfigBuilder newMongodConfigBuilder() throws UnknownHostException, IOException;
 
         protected IRuntimeConfig newRuntimeConfig() {
             return newRuntimeConfigBuilder()
@@ -277,7 +293,7 @@ public abstract class RiverMongoDBTestAbstract {
         for (int i = 1; i <= 3; ++i) {
             Storage storage = new Storage("target/" + replicaSetName + '/' + i, replicaSetName, 20);
             MongoReplicaSet.Member member = new MongoReplicaSet.Member();
-            member.config = new MongodConfigBuilder().version(Versions.withFeatures(new GenericVersion(rsSettings.get("version"))))
+            member.config = type.newMongodConfigBuilder().version(Versions.withFeatures(new GenericVersion(rsSettings.get("version"))))
                 .net(new de.flapdoodle.embed.mongo.config.Net(ports[i - 1], Network.localhostIsIPv6())).replication(storage).build();
             logger.trace("replSetName in config: {}", member.config.replication().getReplSetName());
             member.executable = starter.prepare(member.config);

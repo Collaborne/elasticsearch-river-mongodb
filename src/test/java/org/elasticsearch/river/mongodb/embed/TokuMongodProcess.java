@@ -1,7 +1,9 @@
 package org.elasticsearch.river.mongodb.embed;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 
@@ -34,5 +36,13 @@ public class TokuMongodProcess extends MongodProcess {
             environment.put("LD_LIBRARY_PATH", exe.executable().getParent());
         }
         return environment;
+    }
+    
+    @Override
+    protected List<String> getCommandLine(Distribution distribution, IMongodConfig config, IExtractedFileSet files) throws IOException {
+        List<String> result = new ArrayList<String>(super.getCommandLine(distribution, config, files));
+        result.add("--fsRedzone");
+        result.add("1");
+        return result;
     }
 }
