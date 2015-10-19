@@ -285,7 +285,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
                         // Determine the timestamp to be used for all documents loaded as "initial import".
                         Timestamp initialImportTimestamp = null;
                         for (Shard shard : config.getShards()) {
-                            if (initialImportTimestamp == null || shard.getLatestOplogTimestamp().compareTo(initialImportTimestamp) < 1) {
+                            if (initialImportTimestamp == null || shard.getLatestOplogTimestamp().compareTo(initialImportTimestamp) < 0) {
                                 initialImportTimestamp = shard.getLatestOplogTimestamp();
                             }
                         }
