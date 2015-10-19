@@ -106,8 +106,7 @@ public abstract class MongoDBHelper {
                 if (filteredObject.containsField(rootObject)) {
                     Object object = filteredObject.get(rootObject);
                     if (object instanceof DBObject) {
-                        DBObject object2 = (DBObject) object;
-                        object2 = applyExcludeFields(object2, new HashSet<String>(Arrays.asList(childObject)));
+                        applyExcludeFields((DBObject) object, new HashSet<String>(Arrays.asList(childObject)));
                     }
                 }
             } else {
