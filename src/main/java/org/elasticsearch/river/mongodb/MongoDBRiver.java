@@ -224,7 +224,8 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
                             // block is removed...
                         } else {
                             logger.error("failed to create index [{}], disabling river...", e, definition.getIndexName());
-                            return;
+                            // Throw exception to outer handler
+                            throw e;
                         }
                     }
 
