@@ -48,6 +48,7 @@ import org.elasticsearch.river.mongodb.util.MongoDBHelper;
 import org.elasticsearch.river.mongodb.util.MongoDBRiverHelper;
 import org.elasticsearch.script.ScriptService;
 
+import com.mongodb.DB;
 import com.mongodb.DBObject;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoSocketException;
@@ -300,9 +301,11 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
                     for (Shard shard : config.getShards()) {
                         Timestamp shardSlurperStartTimestamp = slurperStartTimestamp != null ? slurperStartTimestamp : shard.getLatestOplogTimestamp();
                         MongoClient mongoClient = mongoClientService.getMongoShardClient(definition, shard.getReplicas());
+                        DB oplogDb = mongoClient.getDB(MongoDBRiver.MONGODB_LOCAL_DATABASE);
+                        DB slurpedDb = mongoClient.getDB(definition.getMongoDb());
                         Thread tailerThread = EsExecutors.daemonThreadFactory(
                                 settings.globalSettings(), "mongodb_river_slurper_" + shard.getName() + ":" + definition.getIndexName()
-                            ).newThread(new OplogSlurper(MongoDBRiver.this, shardSlurperStartTimestamp, mongoClient));
+                            ).newThread(new OplogSlurper(MongoDBRiver.this, shardSlurperStartTimestamp, oplogDb, slurpedDb));
                         tailerThreads.add(tailerThread);
                     }
 

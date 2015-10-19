@@ -16,7 +16,6 @@ import com.mongodb.DB;
 import com.mongodb.DBCollection;
 import com.mongodb.DBCursor;
 import com.mongodb.DBObject;
-import com.mongodb.MongoClient;
 import com.mongodb.MongoCursorNotFoundException;
 import com.mongodb.MongoInterruptedException;
 import com.mongodb.MongoQueryException;
@@ -48,21 +47,18 @@ class OplogSlurper extends MongoDBRiverComponent implements Runnable {
             MongoDBRiver.OPLOG_UPDATE_ROW_OPERATION, // from TokuMX
             MongoDBRiver.OPLOG_UPDATE_OPERATION, MongoDBRiver.OPLOG_INSERT_OPERATION, MongoDBRiver.OPLOG_COMMAND_OPERATION);
     private final Client esClient;
-    private final MongoClient mongoShardClient;
     private Timestamp<?> timestamp;
     private final DB slurpedDb;
-    private final DB oplogDb;
     private final DBCollection oplogCollection, oplogRefsCollection;
     private final AtomicLong totalDocuments = new AtomicLong();
 
-    public OplogSlurper(MongoDBRiver river, Timestamp<?> timestamp, MongoClient mongoShardClient) {
+    public OplogSlurper(MongoDBRiver river, Timestamp<?> timestamp, DB oplogDb, DB slurpedDb) {
         super(river);
         this.river = river;
         this.timestamp = timestamp;
         this.definition = river.definition;
         this.context = river.context;
         this.esClient = river.esClient;
-        this.mongoShardClient = mongoShardClient;
         this.findKeys = new BasicDBObject();
         this.gridfsOplogNamespace = definition.getMongoOplogNamespace() + MongoDBRiver.GRIDFS_FILES_SUFFIX;
         this.cmdOplogNamespace = definition.getMongoDb() + "." + MongoDBRiver.OPLOG_NAMESPACE_COMMAND;
@@ -75,10 +71,9 @@ class OplogSlurper extends MongoDBRiverComponent implements Runnable {
                 findKeys.put(key, 1);
             }
         }
-        this.oplogDb = mongoShardClient.getDB(MongoDBRiver.MONGODB_LOCAL_DATABASE);
         this.oplogCollection = oplogDb.getCollection(MongoDBRiver.OPLOG_COLLECTION);
         this.oplogRefsCollection = oplogDb.getCollection(MongoDBRiver.OPLOG_REFS_COLLECTION);
-        this.slurpedDb = mongoShardClient.getDB(definition.getMongoDb());
+        this.slurpedDb = slurpedDb;
     }
 
     @Override
@@ -280,7 +275,7 @@ class OplogSlurper extends MongoDBRiverComponent implements Runnable {
             if (objectId == null) {
                 throw new NullPointerException(MongoDBRiver.MONGODB_ID_FIELD);
             }
-            GridFS grid = new GridFS(mongoShardClient.getDB(definition.getMongoDb()), collection);
+            GridFS grid = new GridFS(slurpedDb, collection);
             GridFSDBFile file = grid.findOne(new ObjectId(objectId));
             if (file != null) {
                 logger.trace("Caught file: {} - {}", file.getId(), file.getFilename());
