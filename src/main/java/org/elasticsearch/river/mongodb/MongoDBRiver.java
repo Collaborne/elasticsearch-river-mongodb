@@ -289,7 +289,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
                                 initialImportTimestamp = shard.getLatestOplogTimestamp();
                             }
                         }
-                        CollectionSlurper importer = new CollectionSlurper(MongoDBRiver.this, mongoClusterClient);
+                        CollectionSlurper importer = new CollectionSlurper(MongoDBRiver.this, mongoClusterClient.getDB(definition.getMongoDb()));
                         importer.importInitial(initialImportTimestamp);
                         // Start slurping from the shard's oplog time
                         slurperStartTimestamp = null;
@@ -302,7 +302,7 @@ public class MongoDBRiver extends AbstractRiverComponent implements River {
                         MongoClient mongoClient = mongoClientService.getMongoShardClient(definition, shard.getReplicas());
                         Thread tailerThread = EsExecutors.daemonThreadFactory(
                                 settings.globalSettings(), "mongodb_river_slurper_" + shard.getName() + ":" + definition.getIndexName()
-                            ).newThread(new OplogSlurper(MongoDBRiver.this, shardSlurperStartTimestamp, mongoClusterClient, mongoClient));
+                            ).newThread(new OplogSlurper(MongoDBRiver.this, shardSlurperStartTimestamp, mongoClient));
                         tailerThreads.add(tailerThread);
                     }
 

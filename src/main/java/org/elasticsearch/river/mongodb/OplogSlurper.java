@@ -48,7 +48,6 @@ class OplogSlurper extends MongoDBRiverComponent implements Runnable {
             MongoDBRiver.OPLOG_UPDATE_ROW_OPERATION, // from TokuMX
             MongoDBRiver.OPLOG_UPDATE_OPERATION, MongoDBRiver.OPLOG_INSERT_OPERATION, MongoDBRiver.OPLOG_COMMAND_OPERATION);
     private final Client esClient;
-    private final MongoClient mongoClusterClient;
     private final MongoClient mongoShardClient;
     private Timestamp<?> timestamp;
     private final DB slurpedDb;
@@ -56,14 +55,13 @@ class OplogSlurper extends MongoDBRiverComponent implements Runnable {
     private final DBCollection oplogCollection, oplogRefsCollection;
     private final AtomicLong totalDocuments = new AtomicLong();
 
-    public OplogSlurper(MongoDBRiver river, Timestamp<?> timestamp, MongoClient mongoClusterClient, MongoClient mongoShardClient) {
+    public OplogSlurper(MongoDBRiver river, Timestamp<?> timestamp, MongoClient mongoShardClient) {
         super(river);
         this.river = river;
         this.timestamp = timestamp;
         this.definition = river.definition;
         this.context = river.context;
         this.esClient = river.esClient;
-        this.mongoClusterClient = mongoClusterClient;
         this.mongoShardClient = mongoShardClient;
         this.findKeys = new BasicDBObject();
         this.gridfsOplogNamespace = definition.getMongoOplogNamespace() + MongoDBRiver.GRIDFS_FILES_SUFFIX;
@@ -358,7 +356,7 @@ class OplogSlurper extends MongoDBRiverComponent implements Runnable {
                 if (to.startsWith(definition.getMongoDb())) {
                     String newCollection = getCollectionFromNamespace(to);
                     DBCollection coll = slurpedDb.getCollection(newCollection);
-                    CollectionSlurper importer = new CollectionSlurper(river, mongoClusterClient);
+                    CollectionSlurper importer = new CollectionSlurper(river, slurpedDb);
                     importer.importCollection(coll, timestamp);
                 }
             }

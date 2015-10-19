@@ -32,17 +32,15 @@ class CollectionSlurper extends MongoDBRiverComponent {
     private final MongoDBRiverDefinition definition;
     private final SharedContext context;
     private final Client esClient;
-    private final MongoClient mongoClient;
     private final DB slurpedDb;
     private final AtomicLong totalDocuments = new AtomicLong();
 
-    public CollectionSlurper(MongoDBRiver river, MongoClient mongoClient) {
+    public CollectionSlurper(MongoDBRiver river, DB slurpedDb) {
         super(river);
         this.definition = river.definition;
         this.context = river.context;
         this.esClient = river.esClient;
-        this.mongoClient = mongoClient;
-        this.slurpedDb = mongoClient.getDB(definition.getMongoDb());
+        this.slurpedDb = slurpedDb;
     }
 
     /**
@@ -133,7 +131,7 @@ class CollectionSlurper extends MongoDBRiverComponent {
                     // TODO: To be optimized.
                     // https://github.com/mongodb/mongo-java-driver/pull/48#issuecomment-25241988
                     // possible option: Get the object id list from .fs collection then call GriDFS.findOne
-                    GridFS grid = new GridFS(mongoClient.getDB(definition.getMongoDb()), definition.getMongoCollection());
+                    GridFS grid = new GridFS(slurpedDb, definition.getMongoCollection());
 
                     cursor = grid.getFileList();
                     while (cursor.hasNext()) {
