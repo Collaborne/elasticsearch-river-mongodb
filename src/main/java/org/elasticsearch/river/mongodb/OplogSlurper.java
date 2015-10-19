@@ -25,7 +25,6 @@ import com.mongodb.MongoTimeoutException;
 import com.mongodb.QueryOperators;
 import com.mongodb.gridfs.GridFS;
 import com.mongodb.gridfs.GridFSDBFile;
-import com.mongodb.gridfs.GridFSFile;
 import com.mongodb.util.JSONSerializers;
 
 class OplogSlurper extends MongoDBRiverComponent implements Runnable {
@@ -462,17 +461,7 @@ class OplogSlurper extends MongoDBRiverComponent implements Runnable {
     }
 
     private DBObject applyFieldFilter(DBObject object) {
-        if (object instanceof GridFSFile) {
-            GridFSFile file = (GridFSFile) object;
-            DBObject metadata = file.getMetaData();
-            if (metadata != null) {
-                file.setMetaData(applyFieldFilter(metadata));
-            }
-        } else {
-            object = MongoDBHelper.applyExcludeFields(object, definition.getExcludeFields());
-            object = MongoDBHelper.applyIncludeFields(object, definition.getIncludeFields());
-        }
-        return object;
+        return MongoDBHelper.applyFieldFilter(object, definition.getIncludeFields(), definition.getExcludeFields());
     }
 
     /*
