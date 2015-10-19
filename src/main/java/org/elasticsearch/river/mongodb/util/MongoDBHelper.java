@@ -22,8 +22,7 @@ package org.elasticsearch.river.mongodb.util;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.Arrays;
-import java.util.HashSet;
+import java.util.Collections;
 import java.util.Properties;
 import java.util.Set;
 
@@ -106,7 +105,7 @@ public abstract class MongoDBHelper {
                 if (filteredObject.containsField(rootObject)) {
                     Object object = filteredObject.get(rootObject);
                     if (object instanceof DBObject) {
-                        applyExcludeFields((DBObject) object, new HashSet<String>(Arrays.asList(childObject)));
+                        applyExcludeFields((DBObject) object, Collections.singleton(childObject));
                     }
                 }
             } else {
